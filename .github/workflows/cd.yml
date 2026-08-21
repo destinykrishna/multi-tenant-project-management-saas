@@ -75,7 +75,7 @@ jobs:
 
       - name: Push Database Schema & Run Tests
         run: |
-          npx prisma db push --skip-generate
+          npx prisma db push
           npm test
 
   # ─── Job 2: Build and Push Docker Image to GHCR ─────────────────────────────
