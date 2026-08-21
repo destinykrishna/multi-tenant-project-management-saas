@@ -1,0 +1,42 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies and build outputs
+node_modules
+dist
+coverage
+*.tsbuildinfo
+
+# Test files and documentation
+tests
+docs
+*.md
+!README.md
+
+# IDE and agent metadata
+.agents
+.claude
+.windsurf
+.vscode
+.idea
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and temporary files
+.DS_Store
+Thumbs.db
+tmp
+temp
+prompts_remaining.png

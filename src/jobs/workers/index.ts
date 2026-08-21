@@ -1,0 +1,55 @@
+import type { Worker } from 'bullmq';
+import { createEmailWorker } from './email.worker.js';
+import { createNotificationWorker } from './notification.worker.js';
+import { createCleanupWorker } from './cleanup.worker.js';
+import { logger } from '../../config/logger.js';
+
+export interface RunningWorkers {
+  emailWorker: Worker;
+  notificationWorker: Worker;
+  cleanupWorker: Worker;
+  stop: () => Promise<void>;
+}
+
+export function startAllWorkers(): RunningWorkers {
+  logger.info('Starting BullMQ background workers...');
+
+  const emailWorker = createEmailWorker();
+  const notificationWorker = createNotificationWorker();
+  const cleanupWorker = createCleanupWorker();
+
+  const stop = async () => {
+    logger.info('Stopping all BullMQ workers...');
+    await Promise.allSettled([
+      emailWorker.close(),
+      notificationWorker.close(),
+      cleanupWorker.close(),
+    ]);
+    logger.info('All BullMQ workers stopped');
+  };
+
+  return {
+    emailWorker,
+    notificationWorker,
+    cleanupWorker,
+    stop,
+  };
+}
+
+// Support starting independently when executed directly
+if (process.env['RUN_WORKERS'] === 'true' || process.argv.includes('--run-workers')) {
+  const workers = startAllWorkers();
+
+  const shutdown = async (signal: string) => {
+    logger.info({ signal }, `Received ${signal}. Shutting down workers gracefully...`);
+    await workers.stop();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
+}

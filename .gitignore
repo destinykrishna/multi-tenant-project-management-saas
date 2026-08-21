@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE & AI Tools
+.vscode/
+.idea/
+.claude/
+.windsurf/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma generated client
+/src/generated/prisma
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+
+# TypeScript incremental
+*.tsbuildinfo

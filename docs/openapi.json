@@ -1,0 +1,372 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Multi-Tenant Project Management SaaS API",
+    "version": "1.0.0",
+    "description": "Comprehensive RESTful API for multi-tenant project management, task collaboration, audit activity logging, in-app notifications, and dashboard analytics."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:5000",
+      "description": "Local Development Server"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "JWT access token sent in the Authorization header"
+      },
+      "CookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "refreshToken",
+        "description": "HTTP-only refresh token cookie for token rotation"
+      }
+    },
+    "schemas": {
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "data": {},
+          "message": { "type": "string" },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string", "format": "date-time" },
+              "requestId": { "type": "string", "format": "uuid" }
+            }
+          }
+        },
+        "required": ["success", "data"]
+      },
+      "ApiErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": {}
+            },
+            "required": ["code", "message"]
+          },
+          "meta": {
+            "type": "object",
+            "properties": {
+              "timestamp": { "type": "string", "format": "date-time" },
+              "requestId": { "type": "string", "format": "uuid" }
+            }
+          }
+        },
+        "required": ["success", "error"]
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "totalPages": { "type": "integer" }
+        },
+        "required": ["total", "page", "limit", "totalPages"]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "email": { "type": "string", "format": "email" },
+          "avatarUrl": { "type": "string", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "email", "createdAt", "updatedAt"]
+      },
+      "Organization": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "slug": { "type": "string" },
+          "ownerId": { "type": "string", "format": "uuid" },
+          "role": { "type": "string", "enum": ["OWNER", "ADMIN", "MEMBER", "VIEWER"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "name", "slug", "ownerId", "createdAt", "updatedAt"]
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "organizationId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "key": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["ACTIVE", "ARCHIVED", "COMPLETED"] },
+          "createdById": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "organizationId", "name", "key", "status", "createdById", "createdAt", "updatedAt"]
+      },
+      "Task": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "projectId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "status": { "type": "string", "enum": ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE", "CANCELLED"] },
+          "priority": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "URGENT"] },
+          "assigneeId": { "type": "string", "format": "uuid", "nullable": true },
+          "createdById": { "type": "string", "format": "uuid" },
+          "dueDate": { "type": "string", "format": "date-time", "nullable": true },
+          "position": { "type": "number" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "projectId", "title", "status", "priority", "createdById", "position", "createdAt", "updatedAt"]
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "taskId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "content": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "user": { "$ref": "#/components/schemas/User" }
+        },
+        "required": ["id", "taskId", "userId", "content", "createdAt", "updatedAt"]
+      },
+      "ActivityLog": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "organizationId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "entityType": { "type": "string", "enum": ["ORGANIZATION", "PROJECT", "TASK", "COMMENT", "USER"] },
+          "entityId": { "type": "string" },
+          "action": { "type": "string", "enum": ["CREATED", "UPDATED", "DELETED", "TASK_STATUS_CHANGED", "TASK_ASSIGNED", "MEMBER_ADDED", "MEMBER_REMOVED"] },
+          "metadata": {},
+          "createdAt": { "type": "string", "format": "date-time" },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "email": { "type": "string" }
+            }
+          }
+        },
+        "required": ["id", "organizationId", "userId", "entityType", "entityId", "action", "createdAt"]
+      },
+      "Notification": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "organizationId": { "type": "string", "format": "uuid", "nullable": true },
+          "type": { "type": "string", "enum": ["TASK_ASSIGNED", "TASK_STATUS_CHANGED", "MEMBER_ADDED", "MEMBER_REMOVED", "GENERAL"] },
+          "title": { "type": "string" },
+          "message": { "type": "string" },
+          "metadata": {},
+          "isRead": { "type": "boolean" },
+          "readAt": { "type": "string", "format": "date-time", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["id", "userId", "type", "title", "message", "isRead", "createdAt"]
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Returns operational status of the server and connected Redis instance.",
+        "responses": {
+          "200": { "description": "System is healthy or degraded" }
+        }
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "summary": "Register User",
+        "description": "Registers a new user and provisions their initial organization.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "Jane Doe" },
+                  "email": { "type": "string", "format": "email", "example": "jane@example.com" },
+                  "password": { "type": "string", "format": "password", "minLength": 8 },
+                  "organizationName": { "type": "string", "example": "Acme Corp" }
+                },
+                "required": ["name", "email", "password", "organizationName"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "User created successfully" },
+          "409": { "description": "Email already in use" },
+          "422": { "description": "Validation error" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "summary": "User Login",
+        "description": "Authenticates user credentials and issues access/refresh tokens.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "password": { "type": "string" }
+                },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Authenticated successfully" },
+          "401": { "description": "Invalid credentials" },
+          "422": { "description": "Validation error" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "summary": "Refresh Access Token",
+        "description": "Rotates refresh token and issues a new access token.",
+        "security": [{ "CookieAuth": [] }],
+        "responses": {
+          "200": { "description": "Token refreshed successfully" },
+          "401": { "description": "Invalid or revoked refresh token" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "summary": "User Logout",
+        "description": "Revokes current refresh token session and clears authentication cookies.",
+        "responses": {
+          "200": { "description": "Logged out successfully" }
+        }
+      }
+    },
+    "/api/v1/organizations": {
+      "get": {
+        "summary": "List User Organizations",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "List of user organizations" }
+        }
+      },
+      "post": {
+        "summary": "Create Organization",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "slug": { "type": "string" }
+                },
+                "required": ["name"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Organization created" },
+          "409": { "description": "Slug already exists" }
+        }
+      }
+    },
+    "/api/v1/organizations/{organizationId}/dashboard": {
+      "get": {
+        "summary": "Organization Dashboard Metrics",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "organizationId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "recentActivityLimit", "in": "query", "schema": { "type": "integer", "default": 5 } },
+          { "name": "recentNotificationsLimit", "in": "query", "schema": { "type": "integer", "default": 5 } }
+        ],
+        "responses": {
+          "200": { "description": "Aggregated dashboard metrics and recent activity" },
+          "403": { "description": "Not an organization member" }
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "summary": "List User Notifications",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20 } },
+          { "name": "isRead", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "type", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Paginated list of user notifications" }
+        }
+      }
+    },
+    "/api/v1/notifications/unread": {
+      "get": {
+        "summary": "Unread Notification Count",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Returns unread count" }
+        }
+      }
+    },
+    "/api/v1/notifications/read-all": {
+      "patch": {
+        "summary": "Mark All Notifications As Read",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "All notifications marked as read" }
+        }
+      }
+    },
+    "/api/v1/notifications/{id}/read": {
+      "patch": {
+        "summary": "Mark Single Notification As Read",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Notification marked as read" },
+          "403": { "description": "Insufficient permissions (not the owner)" },
+          "404": { "description": "Notification not found" }
+        }
+      }
+    }
+  }
+}
