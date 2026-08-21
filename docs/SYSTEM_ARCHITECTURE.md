@@ -16,37 +16,7 @@ This is a **multi-tenant project management SaaS backend** — think a simplifie
 
 ## 2. Complete System Architecture
 
-```mermaid
-graph TB
-    subgraph "External"
-        Client["Client (Browser / Mobile / CLI)"]
-    end
-
-    subgraph "Public Gateway"
-        Nginx["Nginx 1.27 Alpine<br/>Port 80<br/>least_conn Load Balancing"]
-    end
-
-    subgraph "Application Cluster (Docker)"
-        API1["API Instance 1<br/>Node.js 22 + Express 5<br/>Port 5000"]
-        API2["API Instance 2<br/>Node.js 22 + Express 5<br/>Port 5000"]
-        Workers["BullMQ Worker Daemon<br/>3 workers: email, notification, cleanup"]
-    end
-
-    subgraph "Data Layer (Internal Network)"
-        PG["PostgreSQL 16 Alpine<br/>Primary Database"]
-        Redis["Redis 7 Alpine<br/>Cache + Rate Limiting + Job Queue"]
-    end
-
-    Client -->|"HTTP"| Nginx
-    Nginx -->|"Proxy"| API1
-    Nginx -->|"Proxy"| API2
-    API1 --> PG
-    API2 --> PG
-    API1 --> Redis
-    API2 --> Redis
-    Workers --> PG
-    Workers --> Redis
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#1-high-level-system-architecture))*
 
 **Why this architecture:**
 - **Nginx in front** — A single public entry point means you can add TLS, rate limiting, and IP banning in one place. The app containers never receive raw internet traffic.
@@ -90,57 +60,7 @@ The codebase lives in `src/` and follows a strict layered architecture. Each mod
 
 This is the exact sequence for every HTTP request in this system:
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant N as Nginx
-    participant E as Express App
-    participant RI as requestIdMiddleware
-    participant PH as pinoHttp Logger
-    participant RL as Rate Limiter (Redis)
-    participant AM as authenticate (JWT)
-    participant AZ as authorizeOrgRole (RBAC)
-    participant VM as validateRequest (Zod)
-    participant CT as Controller
-    participant SV as Service
-    participant RP as Repository
-    participant PR as Prisma Client
-    participant PG as PostgreSQL
-    participant EH as errorHandler
-
-    C->>N: HTTP Request
-    N->>E: Proxied request (X-Real-IP, X-Forwarded-For headers)
-    E->>E: helmet() — sets security headers
-    E->>E: cors() — validates origin
-    E->>E: express.json() — parses body
-    E->>E: cookieParser() — parses cookies
-    E->>RI: Assigns/preserves X-Request-ID
-    E->>PH: Logs request start
-    E->>RL: Redis INCR + TTL check
-    RL-->>E: 429 if over limit, else continue
-    E->>AM: Extracts Bearer token, verifies JWT signature
-    AM-->>E: 401 if invalid/expired
-    E->>AZ: Queries OrganizationMember table
-    AZ-->>E: 403 if not member or wrong role
-    E->>VM: Validates body/params/query with Zod
-    VM-->>E: 422 with field-level errors if invalid
-    E->>CT: Calls controller method
-    CT->>SV: Calls service with typed inputs
-    SV->>RP: Calls repository methods
-    RP->>PR: Executes Prisma query
-    PR->>PG: SQL over pg.Pool connection
-    PG-->>PR: Result rows
-    PR-->>RP: Typed result
-    RP-->>SV: Data
-    SV-->>CT: Business response
-    CT-->>E: sendSuccess(res, data, statusCode)
-    E-->>N: JSON response
-    N-->>C: Response with Nginx headers
-
-    Note over E,EH: If ANY middleware or handler throws
-    E->>EH: errorHandler catches all errors
-    EH-->>E: Classifies error, logs, returns structured JSON
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#2-request-lifecycle))*
 
 **Why this order matters:**
 1. `requestId` is set FIRST so every log line from this request can be correlated.
@@ -157,53 +77,7 @@ sequenceDiagram
 
 ## 5. Authentication — The Complete Flow
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as API
-    participant DB as PostgreSQL
-    participant R as Redis
-
-    Note over C,DB: === REGISTER ===
-    C->>API: POST /api/v1/auth/register {name, email, password, organizationName}
-    API->>API: Normalize email to lowercase
-    API->>DB: Check if email exists
-    API->>API: bcrypt.hash(password, 12 rounds)
-    API->>API: Generate UUID userId, tokenId
-    API->>API: jwt.sign(accessToken, JWT_SECRET, 15m)
-    API->>API: jwt.sign(refreshToken, JWT_REFRESH_SECRET, 7d)
-    API->>API: sha256(refreshToken) → tokenHash
-    API->>DB: $transaction: create User + Organization + OrgMember(OWNER) + RefreshSession
-    API->>C: 201 + Set-Cookie: refreshToken (HttpOnly, Secure, SameSite=Lax, Path=/api/v1/auth)
-    API->>C: Body: {accessToken, user, organization}
-
-    Note over C,DB: === LOGIN ===
-    C->>API: POST /api/v1/auth/login {email, password}
-    API->>DB: Find user by email
-    API->>API: bcrypt.compare(password, passwordHash)
-    API->>DB: Create new RefreshSession
-    API->>C: 200 + Set-Cookie: refreshToken + Body: {accessToken, user}
-
-    Note over C,DB: === REFRESH (Token Rotation) ===
-    C->>API: POST /api/v1/auth/refresh (Cookie: refreshToken)
-    API->>API: jwt.verify(refreshToken, JWT_REFRESH_SECRET)
-    API->>API: sha256(refreshToken) → tokenHash
-    API->>DB: Find RefreshSession by tokenHash
-    alt Session is revoked (revokedAt != null)
-        API->>DB: REVOKE ALL sessions for this userId (reuse detection!)
-        API->>C: 401 TOKEN_REVOKED
-    else Session is valid
-        API->>API: Generate new accessToken + refreshToken
-        API->>DB: $transaction: revoke old session + create new session
-        API->>C: 200 + new Set-Cookie + Body: {accessToken, user}
-    end
-
-    Note over C,DB: === LOGOUT ===
-    C->>API: POST /api/v1/auth/logout (Cookie: refreshToken)
-    API->>API: sha256(refreshToken) → tokenHash
-    API->>DB: Set revokedAt = now() on matching session
-    API->>C: 200 + Clear-Cookie
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#3-authentication-flow))*
 
 ### Key Security Decisions (all actually implemented):
 
@@ -219,29 +93,7 @@ sequenceDiagram
 
 ## 6. Multi-Tenancy and RBAC
 
-```mermaid
-graph TD
-    subgraph "Tenant A: Acme Corp"
-        OA["Organization: Acme Corp<br/>slug: acme-corp"]
-        OA --> MA1["OWNER: alice@acme.com"]
-        OA --> MA2["ADMIN: bob@acme.com"]
-        OA --> MA3["MEMBER: charlie@acme.com"]
-        OA --> PA1["Project: Backend API"]
-        PA1 --> TA1["Task: Fix auth bug"]
-        PA1 --> TA2["Task: Add pagination"]
-    end
-
-    subgraph "Tenant B: Globex Inc"
-        OB["Organization: Globex Inc<br/>slug: globex-inc"]
-        OB --> MB1["OWNER: dave@globex.com"]
-        OB --> MB2["VIEWER: eve@globex.com"]
-        OB --> PB1["Project: Mobile App"]
-        PB1 --> TB1["Task: Design login screen"]
-    end
-
-    style OA fill:#1a1a2e,color:#fff
-    style OB fill:#1a1a2e,color:#fff
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#4-multi-tenancy--rbac))*
 
 ### How Tenant Isolation Actually Works
 
@@ -363,39 +215,7 @@ Redis is the message broker for BullMQ. Job data is stored in Redis lists and so
 
 ## 9. BullMQ Queues and Workers
 
-```mermaid
-graph LR
-    subgraph "API Process (Producer)"
-        TS["TaskService.createTask()"]
-        CS["CommentService.createComment()"]
-        ES["EmailService.queueEmail()"]
-    end
-
-    subgraph "Redis"
-        NQ["notification-queue"]
-        EQ["email-queue"]
-        CQ["cleanup-queue"]
-    end
-
-    subgraph "Worker Process (Consumer)"
-        NW["NotificationWorker<br/>concurrency: 10"]
-        EW["EmailWorker<br/>concurrency: 5"]
-        CW["CleanupWorker<br/>cron: every 6 hours"]
-    end
-
-    TS -->|"addNotificationJob()"| NQ
-    CS -->|"addNotificationJob()"| NQ
-    ES -->|"addEmailJob()"| EQ
-    CQ -.->|"repeatable job"| CQ
-
-    NQ --> NW
-    EQ --> EW
-    CQ --> CW
-
-    NW -->|"INSERT notification"| DB["PostgreSQL"]
-    EW -->|"SMTP send"| SMTP["Email Server"]
-    CW -->|"DELETE expired rows"| DB
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#7-bullmq-architecture))*
 
 ### The Three Queues
 
@@ -494,15 +314,7 @@ In production (`NODE_ENV === 'production'`), if an error is NOT an `AppError` wi
 
 ## 13. Docker Architecture
 
-```mermaid
-graph TB
-    subgraph "Dockerfile (Multi-Stage Build)"
-        S1["Stage 1: dependencies<br/>node:22-alpine<br/>npm ci (all deps)"]
-        S2["Stage 2: builder<br/>prisma generate<br/>tsc compile<br/>npm prune --production"]
-        S3["Stage 3: runner<br/>node:22-alpine<br/>dumb-init + non-root 'node' user<br/>Only production deps + dist/"]
-    end
-    S1 --> S2 --> S3
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#11-deployment-architecture))*
 
 **Why multi-stage?** The `node_modules` with dev dependencies is ~400MB. The final image only includes production dependencies and compiled JavaScript — roughly 150MB. TypeScript source, test files, `.env`, and development tools are never in the production image.
 
@@ -527,17 +339,7 @@ The `api_1` and `api_2` services use a YAML anchor (`&api-common`) to avoid dupl
 
 ## 14. Nginx Reverse Proxy and Load Balancing
 
-```mermaid
-graph LR
-    Client -->|"Port 80"| Nginx
-    Nginx -->|"least_conn<br/>keepalive 32"| API1["api_1:5000"]
-    Nginx -->|"least_conn<br/>keepalive 32"| API2["api_2:5000"]
-    
-    subgraph "Failover"
-        API1 -.->|"502/503/504<br/>or timeout"| Retry["Nginx retries on<br/>other instance<br/>(max 3 tries)"]
-        Retry -.-> API2
-    end
-```
+*(Visual diagram available in [`docs/ARCHITECTURE_DIAGRAMS.md`](file:///c:/Users/Krishna/Desktop/3d-website/Expense_analyzer/docs/ARCHITECTURE_DIAGRAMS.md#10-nginx-load-balancing))*
 
 **How `least_conn` works:** Unlike round-robin (which alternates blindly), `least_conn` checks which backend currently has fewer active connections and routes the new request there. This naturally handles the case where one instance is processing a slow database query — new requests go to the instance that's free.
 
