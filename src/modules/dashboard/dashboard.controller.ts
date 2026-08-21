@@ -7,11 +7,7 @@ import type { DashboardParams, GetDashboardQuery } from './dashboard.schema.js';
 export class DashboardController {
   constructor(private readonly service: DashboardService = dashboardService) {}
 
-  getDashboard = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
-  ): Promise<void> => {
+  getDashboard = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { organizationId } = req.params as unknown as DashboardParams;
       const query = req.query as unknown as GetDashboardQuery;

@@ -7,7 +7,10 @@ import {
 import { OrganizationRole } from '../../constants/roles.js';
 import { commentRepository, type CommentRepository } from './comment.repository.js';
 import { activityService, type ActivityService } from '../activity/activity.service.js';
-import { notificationService, type NotificationService } from '../notifications/notification.service.js';
+import {
+  notificationService,
+  type NotificationService,
+} from '../notifications/notification.service.js';
 import { EntityType, ActivityAction } from '../../constants/activity.js';
 import { NotificationType } from '../../constants/notification.js';
 import type {
