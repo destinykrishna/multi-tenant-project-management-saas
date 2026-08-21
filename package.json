@@ -1,7 +1,6 @@
 {
   "name": "multi_tenant_backend",
   "version": "1.0.0",
-  "type": "module",
   "main": "dist/server.js",
   "directories": {
     "test": "tests"
