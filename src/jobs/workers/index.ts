@@ -2,12 +2,14 @@ import type { Worker } from 'bullmq';
 import { createEmailWorker } from './email.worker.js';
 import { createNotificationWorker } from './notification.worker.js';
 import { createCleanupWorker } from './cleanup.worker.js';
+import { createRagWorker } from './rag.worker.js';
 import { logger } from '../../config/logger.js';
 
 export interface RunningWorkers {
   emailWorker: Worker;
   notificationWorker: Worker;
   cleanupWorker: Worker;
+  ragWorker: Worker;
   stop: () => Promise<void>;
 }
 
@@ -17,6 +19,7 @@ export function startAllWorkers(): RunningWorkers {
   const emailWorker = createEmailWorker();
   const notificationWorker = createNotificationWorker();
   const cleanupWorker = createCleanupWorker();
+  const ragWorker = createRagWorker();
 
   const stop = async () => {
     logger.info('Stopping all BullMQ workers...');
@@ -24,6 +27,7 @@ export function startAllWorkers(): RunningWorkers {
       emailWorker.close(),
       notificationWorker.close(),
       cleanupWorker.close(),
+      ragWorker.close(),
     ]);
     logger.info('All BullMQ workers stopped');
   };
@@ -32,6 +36,7 @@ export function startAllWorkers(): RunningWorkers {
     emailWorker,
     notificationWorker,
     cleanupWorker,
+    ragWorker,
     stop,
   };
 }

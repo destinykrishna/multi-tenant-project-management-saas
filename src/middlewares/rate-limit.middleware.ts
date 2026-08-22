@@ -95,10 +95,10 @@ export function createRateLimiter(options: RateLimiterOptions) {
 
 // ─── Predefined Rate Limiters ──────────────────────────────────────────────────
 
-// General API rate limiter (200 requests / minute)
+// General API rate limiter (200 requests / minute, higher in tests to prevent suite starvation)
 export const generalRateLimiter = createRateLimiter({
   windowSeconds: 60,
-  maxRequests: 200,
+  maxRequests: process.env['NODE_ENV'] === 'test' ? 5000 : 200,
   prefix: 'gen',
   message: 'API rate limit exceeded, please slow down your requests',
   code: 'API_RATE_LIMIT_EXCEEDED',

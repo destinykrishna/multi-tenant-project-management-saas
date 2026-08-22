@@ -907,50 +907,89 @@ The integration would connect at the service layer — `TaskService.createTask()
 
 ---
 
-## 18. Future RAG / AI Architecture
+## 18. RAG Ingestion, Retrieval & Answer-Generation Architecture
 
-> **🔮 [FUTURE / NOT IMPLEMENTED]** — This diagram represents planned architecture, not existing code.
+> **✅ [IMPLEMENTED]** — Complete end-to-end RAG architecture:
+> 1. **Ingestion**: Entity extraction (Project, Task, Comment, ActivityLog), sliding-window chunking, pluggable embedding providers (Gemini, OpenAI, Mock).
+> 2. **Storage**: PostgreSQL dense vector storage (`rag_knowledge_documents`, `Float[] embeddings`).
+> 3. **Retrieval**: Tenant-scoped vector similarity search (`POST /api/v1/organizations/:organizationId/rag/retrieve`) with cosine similarity and threshold filtering.
+> 4. **Answer Generation**: Pluggable LLM provider (Groq LPU, Gemini, OpenAI, Mock), prompt injection defense, strict grounding without hallucinations, and source citations (`POST /api/v1/organizations/:organizationId/rag/query`).
+>
+> **🔮 [FUTURE / NOT IMPLEMENTED]** — Autonomous Agentic AI, tool calling, and workflow execution.
 
 ```mermaid
 graph TB
-    subgraph "Client"
-        U["User<br/>Natural language query"]
+    subgraph "Existing SaaS Application Data [IMPLEMENTED]"
+        P["Project"]
+        T["Task"]
+        C["Comment"]
+        AL["ActivityLog"]
     end
 
-    subgraph "Future: AI Gateway"
-        GW["AI Gateway API<br/>/api/v1/organizations/:orgId/ai/search"]
+    subgraph "RAG Ingestion & Indexing Pipeline [IMPLEMENTED]"
+        EF["Entity Formatters<br/>(Sanitizes & formats content;<br/>omits passwords & tokens)"]
+        CHK["Sliding-Window Chunker<br/>(1000 chars, 150 overlap)"]
+        EP["IEmbeddingProvider<br/>Gemini / OpenAI / Mock"]
+        REPO["RagRepository<br/>(Deterministic Upsert on @@unique composite key)"]
+        VS["PostgreSQL Vector Storage<br/>(rag_knowledge_documents / Float[] embeddings)"]
     end
 
-    subgraph "Existing: Auth & RBAC"
-        AUTH["authenticate() + authorizeOrgRole()<br/>⚡ Must NOT be bypassed"]
+    subgraph "RAG Semantic Retrieval Layer [IMPLEMENTED]"
+        UQ["User Question<br/>(via POST /rag/query or /retrieve)"]
+        QE["Query Embedding<br/>(via IEmbeddingProvider)"]
+        VSR["Tenant-Scoped Vector Search<br/>(WHERE organization_id = :orgId<br/>+ optional sourceTypes / projectId)"]
+        RANK["Cosine Similarity Ranking & Threshold Filter<br/>(minSimilarity cutoff + Top-K slice)"]
+        CTX["Top-K Relevant Context Chunks<br/>(Clean source metadata, zero vector leakage)"]
     end
 
-    subgraph "Future: RAG Pipeline"
-        EMB["Embedding Service<br/>OpenAI / Vertex AI"]
-        VS["Vector Store<br/>pgvector (PostgreSQL extension)"]
-        LLM["LLM Provider<br/>GPT-4 / Gemini"]
+    subgraph "RAG Answer-Generation Layer [IMPLEMENTED]"
+        PMT["Prompt Injection Defense & Context Assembly<br/>(Strict grounding, data boundaries)"]
+        LLM["ILlmProvider<br/>Groq (Llama 3.3 70B) / Gemini / OpenAI / Mock"]
+        ANS["Grounded Answer + Source References<br/>(Zero hallucination, cited sources)"]
     end
 
-    subgraph "Existing: Data Sources"
-        PG["PostgreSQL<br/>Tasks, Comments, Activity"]
+    subgraph "Future: Autonomous Agentic Workflows [FUTURE / NOT IMPLEMENTED]"
+        AG["Agentic Orchestrator & Tool Calling<br/>(Autonomous task mutation, Google actions)"]
     end
 
-    U --> GW
-    GW --> AUTH
-    AUTH --> EMB
-    EMB -->|"Embed query"| VS
-    VS -->|"Cosine similarity search"| EMB
-    EMB -->|"Retrieved context"| LLM
-    PG -->|"Pre-indexed embeddings"| VS
-    LLM -->|"Generated answer"| GW
-    GW --> U
+    P --> EF
+    T --> EF
+    C --> EF
+    AL --> EF
+    EF --> CHK
+    CHK --> EP
+    EP --> REPO
+    REPO --> VS
 
-    style AUTH fill:#e74c3c,color:#fff
-    style LLM fill:#8e44ad,color:#fff
+    UQ --> QE
+    QE --> VSR
+    VS --> VSR
+    VSR --> RANK
+    RANK --> CTX
+
+    CTX --> PMT
+    PMT --> LLM
+    LLM --> ANS
+
+    ANS -.->|"Future tool trigger"| AG
+
+    style EF fill:#27ae60,color:#fff
+    style CHK fill:#27ae60,color:#fff
+    style EP fill:#27ae60,color:#fff
+    style REPO fill:#27ae60,color:#fff
     style VS fill:#2980b9,color:#fff
+    style UQ fill:#27ae60,color:#fff
+    style QE fill:#27ae60,color:#fff
+    style VSR fill:#27ae60,color:#fff
+    style RANK fill:#27ae60,color:#fff
+    style CTX fill:#27ae60,color:#fff
+    style PMT fill:#27ae60,color:#fff
+    style LLM fill:#27ae60,color:#fff
+    style ANS fill:#27ae60,color:#fff
+    style AG fill:#8e44ad,color:#fff,stroke-dasharray: 5 5
 ```
 
-> **⚠ Security rule:** The RAG pipeline must respect tenant isolation. Vector search queries MUST be scoped to `organizationId`. The LLM must never see data from other tenants.
+> **⚠ Security & Tenant Isolation Rule:** All RAG ingestion, retrieval, and answering operations are strictly scoped to `organizationId` at the database level. Passwords, password hashes, and access tokens are strictly stripped by entity formatters before chunking or embedding generation. Raw dense embedding arrays are never exposed via REST API responses. Context chunks are treated as untrusted data to neutralize prompt injection attacks.
 
 ---
 
@@ -1003,6 +1042,100 @@ sequenceDiagram
 > - Scope all data access to the user's organization
 > - Never delete resources without explicit user confirmation
 > - Log all actions to the activity log for auditability
+
+---
+
+## 20. Foundational AI Infrastructure & Read-Only Tools Layer
+
+> **✅ [IMPLEMENTED]** — Core AI Infrastructure: Provider-independent LLM abstraction (`ILlmProvider` supporting Groq LPU, Gemini, OpenAI, Mock), AI Service (`AiService`), RAG context bridge (`RagService.retrieve`), execution limits (`AgentExecutionLimits`), prompt injection defense.
+> **✅ [IMPLEMENTED]** — Safe Read-Only AI Tools Layer: `ToolRegistry`, `searchProjects`, `getProject`, `searchTasks`, `getTask`, `searchMembers`, `getMember`, `getRecentActivity`.
+> **🔮 [FUTURE / NOT IMPLEMENTED]** — Write Tools (create/update/delete), Agent Orchestrator, Autonomous Tool Execution, and Multi-Step Agent Workflows.
+
+```mermaid
+graph TB
+    subgraph "Authenticated Multi-Tenant Request [IMPLEMENTED]"
+        U["User / Caller Request"]
+        CTX["AiRequestContext<br/>(userId, organizationId, userRole)"]
+    end
+
+    subgraph "AI Core Infrastructure Layer [IMPLEMENTED]"
+        AIS["AiService<br/>(Coordinates LLM calls & enforces execution limits)"]
+        RAGB["RAG Context Bridge<br/>(Safely fetches tenant context via RagService)"]
+        LIM["Execution Limits & Safety Envelopes<br/>(AI_MAX_STEPS, AI_MAX_TOOL_CALLS, timeoutMs)"]
+        LLMP["ILlmProvider Abstraction<br/>Groq (Llama 3.3 70B) / Gemini / OpenAI / Mock"]
+    end
+
+    subgraph "Tool Registry & Safe Read-Only Tools [IMPLEMENTED]"
+        TR["ToolRegistry<br/>(Validates input schema & enforces caller RBAC)"]
+        T_SP["searchProjects"]
+        T_GP["getProject"]
+        T_ST["searchTasks"]
+        T_GT["getTask"]
+        T_SM["searchMembers"]
+        T_GM["getMember"]
+        T_RA["getRecentActivity"]
+    end
+
+    subgraph "Existing Application Services [IMPLEMENTED]"
+        PS["ProjectService"]
+        TS["TaskService"]
+        OS["OrganizationService"]
+        AS["ActivityService"]
+    end
+
+    subgraph "Future: Write Tools & Agent Orchestration [FUTURE / NOT IMPLEMENTED]"
+        AO["Agent Orchestrator (Multi-step reasoning & tool dispatch)"]
+        WT["Write Tools (createTask, updateTask, scheduleMeeting, sendEmail)"]
+    end
+
+    U --> CTX
+    CTX --> AIS
+    AIS --> RAGB
+    AIS --> LIM
+    AIS --> LLMP
+
+    TR --> T_SP
+    TR --> T_GP
+    TR --> T_ST
+    TR --> T_GT
+    TR --> T_SM
+    TR --> T_GM
+    TR --> T_RA
+
+    T_SP -->|"calls authorized service"| PS
+    T_GP -->|"calls authorized service"| PS
+    T_ST -->|"calls authorized service"| TS
+    T_GT -->|"calls authorized service"| TS
+    T_SM -->|"calls authorized service"| OS
+    T_GM -->|"calls authorized service"| OS
+    T_RA -->|"calls authorized service"| AS
+
+    AO -.->|"Future tool dispatch"| TR
+    AO -.->|"Future write dispatch"| WT
+
+    style U fill:#27ae60,color:#fff
+    style CTX fill:#27ae60,color:#fff
+    style AIS fill:#27ae60,color:#fff
+    style RAGB fill:#27ae60,color:#fff
+    style LIM fill:#27ae60,color:#fff
+    style LLMP fill:#27ae60,color:#fff
+    style TR fill:#27ae60,color:#fff
+    style T_SP fill:#27ae60,color:#fff
+    style T_GP fill:#27ae60,color:#fff
+    style T_ST fill:#27ae60,color:#fff
+    style T_GT fill:#27ae60,color:#fff
+    style T_SM fill:#27ae60,color:#fff
+    style T_GM fill:#27ae60,color:#fff
+    style T_RA fill:#27ae60,color:#fff
+    style PS fill:#2980b9,color:#fff
+    style TS fill:#2980b9,color:#fff
+    style OS fill:#2980b9,color:#fff
+    style AS fill:#2980b9,color:#fff
+    style AO fill:#8e44ad,color:#fff,stroke-dasharray: 5 5
+    style WT fill:#e67e22,color:#fff,stroke-dasharray: 5 5
+```
+
+> **⚠ Security & Architecture Rule:** The AI layer never accesses Prisma or the database directly. All tool calls route through authorized application services respecting tenant isolation and caller permissions. Raw API keys, JWTs, and passwords are never passed to the LLM or exposed in tool outputs.
 
 ---
 

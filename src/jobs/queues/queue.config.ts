@@ -5,6 +5,7 @@ export const QUEUE_NAMES = {
   EMAIL: 'email-queue',
   NOTIFICATION: 'notification-queue',
   CLEANUP: 'cleanup-queue',
+  RAG: 'rag-queue',
 } as const;
 
 export const defaultConnection: ConnectionOptions = {

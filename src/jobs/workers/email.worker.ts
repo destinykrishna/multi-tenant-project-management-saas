@@ -19,6 +19,8 @@ export function createEmailWorker(): Worker<EmailJobData> {
         subject: job.data.subject,
         text: job.data.text ?? (job.data.html ? undefined : `Subject: ${job.data.subject}`),
         html: job.data.html,
+        userId: job.data.userId,
+        provider: job.data.provider,
       });
 
       return {

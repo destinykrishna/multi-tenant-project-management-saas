@@ -9,6 +9,8 @@ export interface EmailJobData {
   template?: string;
   context?: Record<string, unknown>;
   from?: string;
+  userId?: string;
+  provider?: 'smtp' | 'gmail';
 }
 
 export const emailQueue = new Queue<EmailJobData>(QUEUE_NAMES.EMAIL, {

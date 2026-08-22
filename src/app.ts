@@ -17,6 +17,9 @@ import { commentRouter } from './modules/comments/comment.routes.js';
 import { activityRouter } from './modules/activity/activity.routes.js';
 import { notificationRouter } from './modules/notifications/notification.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
+import { meetingRouter } from './modules/meetings/meeting.routes.js';
+import { googleRouter } from './modules/integrations/google/google.routes.js';
+import { ragRouter } from './modules/rag/rag.routes.js';
 import { generalRateLimiter } from './middlewares/rate-limit.middleware.js';
 
 const app = express();
@@ -84,7 +87,10 @@ app.use(
 );
 app.use('/api/v1/organizations/:organizationId/activity', activityRouter);
 app.use('/api/v1/organizations/:organizationId/dashboard', dashboardRouter);
+app.use('/api/v1/organizations/:organizationId/meetings', meetingRouter);
+app.use('/api/v1/organizations/:organizationId/rag', ragRouter);
 app.use('/api/v1/notifications', notificationRouter);
+app.use('/api/v1/integrations/google', googleRouter);
 
 // ─── Error Handling ────────────────────────────────────────────────────────────
 app.use(notFoundHandler);

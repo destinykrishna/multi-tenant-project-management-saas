@@ -33,6 +33,36 @@ const envSchema = z.object({
   // CORS
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
 
+  // Google OAuth Integration
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  GOOGLE_REDIRECT_URI: z
+    .string()
+    .default('http://localhost:3000/api/v1/integrations/google/callback'),
+
+  // Token Encryption Key (Optional, falls back to SHA256 derived key from JWT_SECRET)
+  TOKEN_ENCRYPTION_KEY: z.string().default(''),
+
+  // RAG & Embeddings
+  EMBEDDING_PROVIDER: z.enum(['mock', 'openai', 'gemini', 'groq']).default('mock'),
+  EMBEDDING_API_KEY: z.string().default(''),
+  EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
+  EMBEDDING_DIMENSION: z.coerce.number().int().positive().default(1536),
+  RAG_DEFAULT_TOP_K: z.coerce.number().int().positive().default(5),
+  RAG_MIN_SIMILARITY_THRESHOLD: z.coerce.number().min(0).max(1).default(0.5),
+  RAG_MAX_CONTEXT_LENGTH: z.coerce.number().int().positive().default(12000),
+
+  // LLM Configuration
+  LLM_PROVIDER: z.enum(['mock', 'groq', 'openai', 'gemini']).default('mock'),
+  GROQ_API_KEY: z.string().default(''),
+  GROQ_MODEL: z.string().default('llama-3.3-70b-versatile'),
+
+  // AI & Agent Execution Limits
+  AI_MAX_STEPS: z.coerce.number().int().positive().default(10),
+  AI_MAX_TOOL_CALLS: z.coerce.number().int().positive().default(5),
+  AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+  AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(2048),
+
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

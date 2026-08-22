@@ -1,80 +1,81 @@
-import nodemailer, { type Transporter, type SendMailOptions } from 'nodemailer';
-import type SMTPTransport from 'nodemailer/lib/smtp-transport/index.js';
-import { env } from './env.js';
+import type { Transporter, SendMailOptions } from 'nodemailer';
 import { logger } from './logger.js';
 import { addEmailJob, type EmailJobData } from '../jobs/queues/email.queue.js';
+import type {
+  IEmailProvider,
+  EmailMessage,
+  EmailSendResult,
+} from '../modules/email/email.types.js';
+import { smtpEmailProvider, SmtpEmailProvider } from '../modules/email/providers/smtp.provider.js';
+import { gmailEmailProvider } from '../modules/email/providers/gmail.provider.js';
 
-export interface SendEmailResult {
-  messageId: string;
-  response?: string;
-}
+export type SendEmailResult = EmailSendResult;
 
 export class EmailService {
-  private transporter: Transporter;
+  private providers: Map<'smtp' | 'gmail', IEmailProvider>;
 
-  constructor() {
-    this.transporter = this.createTransporter();
+  constructor(
+    smtpProvider: IEmailProvider = smtpEmailProvider,
+    gmailProvider: IEmailProvider = gmailEmailProvider,
+  ) {
+    this.providers = new Map();
+    this.providers.set('smtp', smtpProvider);
+    this.providers.set('gmail', gmailProvider);
   }
 
-  private createTransporter(): Transporter {
-    if (env.NODE_ENV === 'test') {
-      return nodemailer.createTransport({
-        jsonTransport: true,
-      });
+  getProvider(name: 'smtp' | 'gmail'): IEmailProvider {
+    const provider = this.providers.get(name);
+    if (!provider) {
+      throw new Error(`Email provider '${name}' not registered`);
     }
-
-    const smtpOptions: SMTPTransport.Options = {
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE,
-      auth:
-        env.SMTP_USER && env.SMTP_PASS
-          ? {
-              user: env.SMTP_USER,
-              pass: env.SMTP_PASS,
-            }
-          : undefined,
-    };
-
-    return nodemailer.createTransport(smtpOptions);
+    return provider;
   }
 
-  async sendDirect(options: SendMailOptions): Promise<SendEmailResult> {
-    const mailOptions: SendMailOptions = {
-      from: options.from ?? env.EMAIL_FROM,
-      ...options,
+  async sendDirect(
+    options: SendMailOptions & { provider?: 'smtp' | 'gmail'; userId?: string },
+  ): Promise<SendEmailResult> {
+    const providerName: 'smtp' | 'gmail' =
+      options.provider === 'gmail' || (options.userId && options.provider !== 'smtp')
+        ? 'gmail'
+        : 'smtp';
+
+    const provider = this.getProvider(providerName);
+
+    const message: EmailMessage = {
+      to: options.to as string | string[],
+      from: typeof options.from === 'string' ? options.from : undefined,
+      subject: options.subject || '',
+      text: typeof options.text === 'string' ? options.text : undefined,
+      html: typeof options.html === 'string' ? options.html : undefined,
+      userId: options.userId,
     };
 
     try {
-      const info = (await this.transporter.sendMail(mailOptions)) as {
-        messageId?: string;
-        response?: string;
-      };
-
-      const messageId = typeof info.messageId === 'string' ? info.messageId : '';
-
-      logger.info({ messageId, to: options.to }, 'Email sent successfully via transport');
-
-      return {
-        messageId,
-        response: typeof info.response === 'string' ? info.response : undefined,
-      };
+      const result = await provider.send(message);
+      return result;
     } catch (error) {
       logger.error(
-        { error, to: options.to, subject: options.subject },
-        'Failed to send email via transport',
+        { error, to: options.to, subject: options.subject, provider: providerName },
+        'Failed to send email via provider',
       );
       throw error;
     }
   }
 
   async queueEmail(data: EmailJobData) {
-    logger.debug({ to: data.to, subject: data.subject }, 'Queueing email job');
+    logger.debug(
+      { to: data.to, subject: data.subject, provider: data.provider },
+      'Queueing email job',
+    );
     return addEmailJob(data);
   }
 
   getTransporter(): Transporter {
-    return this.transporter;
+    const smtp = this.providers.get('smtp');
+    if (smtp instanceof SmtpEmailProvider) {
+      return smtp.getTransporter();
+    }
+    return smtpEmailProvider.getTransporter();
   }
 }
 
