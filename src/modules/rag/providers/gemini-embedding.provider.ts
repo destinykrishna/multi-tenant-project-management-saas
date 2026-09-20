@@ -2,15 +2,34 @@ import { logger } from '../../../config/logger.js';
 import { InternalError } from '../../../utils/errors.js';
 import type { IEmbeddingProvider } from '../rag.types.js';
 
+const GEMINI_EMBEDDING_CONFIGS = [
+  {
+    apiVersion: 'v1beta',
+    model: 'gemini-embedding-001',
+  },
+  {
+    apiVersion: 'v1beta',
+    model: 'gemini-embedding-2',
+  },
+  {
+    apiVersion: 'v1beta',
+    model: 'embedding-001',
+  },
+  {
+    apiVersion: 'v1',
+    model: 'text-embedding-004',
+  },
+];
+
 export class GeminiEmbeddingProvider implements IEmbeddingProvider {
   readonly name = 'gemini' as const;
   readonly dimension: number;
   private readonly apiKey: string;
-  private readonly model: string;
+  private readonly preferredModel: string;
 
-  constructor(apiKey: string, model = 'text-embedding-004', dimension = 768) {
+  constructor(apiKey: string, model = 'gemini-embedding-001', dimension = 768) {
     this.apiKey = apiKey;
-    this.model = model.replace(/^models\//, '');
+    this.preferredModel = model.replace(/^models\//, '');
     this.dimension = dimension;
   }
 
@@ -32,42 +51,78 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       );
     }
 
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:batchEmbedContents?key=${this.apiKey}`;
+    const errors: string[] = [];
 
-      const requests = texts.map((text) => ({
-        model: `models/${this.model}`,
-        content: {
-          parts: [{ text }],
-        },
-      }));
+    // Order: Preferred model first with v1beta, then other models
+    const configs = [
+      { apiVersion: 'v1beta', model: this.preferredModel },
+      { apiVersion: 'v1', model: this.preferredModel },
+      ...GEMINI_EMBEDDING_CONFIGS.filter((c) => c.model !== this.preferredModel),
+    ];
 
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ requests }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error(
-          { status: response.status, errorText, model: this.model },
-          'Gemini embedding API request failed',
+    for (const config of configs) {
+      try {
+        const result = await this._tryBatchEmbed(texts, config.apiVersion, config.model);
+        if (result && result.length === texts.length) {
+          return result;
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`${config.apiVersion}/${config.model}: ${msg}`);
+        logger.warn(
+          { apiVersion: config.apiVersion, model: config.model, error: msg },
+          'Gemini embedding attempt failed, trying fallback model',
         );
-        throw new InternalError('Gemini embedding generation failed');
       }
-
-      const data = (await response.json()) as {
-        embeddings: Array<{ values: number[] }>;
-      };
-
-      return data.embeddings.map((item) => item.values);
-    } catch (err) {
-      if (err instanceof InternalError) throw err;
-      logger.error({ err }, 'Unexpected error during Gemini embedding generation');
-      throw new InternalError('Gemini embedding generation encountered a network failure');
     }
+
+    logger.error({ errors, preferredModel: this.preferredModel }, 'All Gemini embedding attempts failed');
+    throw new InternalError(`Gemini embedding failed: ${errors[0] ?? 'unknown error'}`);
+  }
+
+  private async _tryBatchEmbed(
+    texts: string[],
+    apiVersion: string,
+    model: string,
+  ): Promise<number[][] | null> {
+    const url = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:batchEmbedContents?key=${this.apiKey}`;
+
+    const requests = texts.map((text) => ({
+      model: `models/${model}`,
+      content: {
+        parts: [{ text }],
+      },
+      outputDimensionality: this.dimension,
+    }));
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed?.error?.message) {
+          errorMsg = parsed.error.message;
+        }
+      } catch {
+        errorMsg = errorText || errorMsg;
+      }
+      throw new Error(errorMsg);
+    }
+
+    const data = (await response.json()) as {
+      embeddings?: Array<{ values: number[] }>;
+    };
+
+    if (!data.embeddings || data.embeddings.length === 0) {
+      throw new Error('Empty embeddings array in response');
+    }
+
+    return data.embeddings.map((item) => item.values);
   }
 }

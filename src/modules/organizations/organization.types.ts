@@ -17,6 +17,7 @@ export interface OrganizationMemberResponse {
   createdAt: Date;
   updatedAt: Date;
   user: SafeMemberUser;
+  isPending?: boolean;
 }
 
 export interface OrganizationResponse {

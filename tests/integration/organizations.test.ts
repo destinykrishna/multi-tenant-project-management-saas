@@ -7,11 +7,14 @@ import { generateAccessToken } from '../../src/utils/jwt.js';
 describe('Organizations Module Integration Tests', () => {
   let userA: { id: string; email: string; token: string };
   let userB: { id: string; email: string; token: string };
-  let userC: { id: string; email: string; token: string };
+  let userMember: { id: string; email: string; token: string };
   let userViewer: { id: string; email: string; token: string };
+  let userC: { id: string; email: string; token: string };
 
   let orgAId: string;
   let orgBId: string;
+  const createdUserIds: string[] = [];
+  const createdOrgIds: string[] = [];
 
   beforeAll(async () => {
     // 1. Create test users
@@ -19,32 +22,43 @@ describe('Organizations Module Integration Tests', () => {
       prisma.user.create({
         data: {
           name: 'Org User A',
-          email: `org.user.a.${Date.now()}@example.com`,
+          email: `org.user.a.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`,
           passwordHash: 'dummy-hash',
         },
       }),
       prisma.user.create({
         data: {
           name: 'Org User B',
-          email: `org.user.b.${Date.now()}@example.com`,
+          email: `org.user.b.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`,
           passwordHash: 'dummy-hash',
         },
       }),
       prisma.user.create({
         data: {
-          name: 'Org User C',
-          email: `org.user.c.${Date.now()}@example.com`,
+          name: 'Org Member User',
+          email: `org.member.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`,
           passwordHash: 'dummy-hash',
         },
       }),
       prisma.user.create({
         data: {
           name: 'Org Viewer User',
-          email: `org.viewer.${Date.now()}@example.com`,
+          email: `org.viewer.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`,
+          passwordHash: 'dummy-hash',
+        },
+      }),
+      prisma.user.create({
+        data: {
+          name: 'Org User C',
+          email: `org.user.c.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`,
           passwordHash: 'dummy-hash',
         },
       }),
     ]);
+
+    for (const u of createdUsers) {
+      createdUserIds.push(u.id);
+    }
 
     userA = {
       id: createdUsers[0].id,
@@ -58,7 +72,7 @@ describe('Organizations Module Integration Tests', () => {
       token: generateAccessToken({ userId: createdUsers[1].id, email: createdUsers[1].email }),
     };
 
-    userC = {
+    userMember = {
       id: createdUsers[2].id,
       email: createdUsers[2].email,
       token: generateAccessToken({ userId: createdUsers[2].id, email: createdUsers[2].email }),
@@ -69,24 +83,30 @@ describe('Organizations Module Integration Tests', () => {
       email: createdUsers[3].email,
       token: generateAccessToken({ userId: createdUsers[3].id, email: createdUsers[3].email }),
     };
+
+    userC = {
+      id: createdUsers[4].id,
+      email: createdUsers[4].email,
+      token: generateAccessToken({ userId: createdUsers[4].id, email: createdUsers[4].email }),
+    };
   });
 
   afterAll(async () => {
     // Cleanup organizations and users
-    if (orgAId || orgBId) {
+    const allOrgIds = [...createdOrgIds, orgAId, orgBId].filter(Boolean);
+    if (allOrgIds.length > 0) {
       await prisma.organizationMember.deleteMany({
-        where: { organizationId: { in: [orgAId, orgBId].filter(Boolean) } },
+        where: { organizationId: { in: allOrgIds } },
       });
       await prisma.organization.deleteMany({
-        where: { id: { in: [orgAId, orgBId].filter(Boolean) } },
+        where: { id: { in: allOrgIds } },
       });
     }
 
-    const userIds = [userA?.id, userB?.id, userC?.id, userViewer?.id].filter(Boolean);
-    if (userIds.length > 0) {
-      await prisma.organizationMember.deleteMany({ where: { userId: { in: userIds } } });
-      await prisma.organization.deleteMany({ where: { ownerId: { in: userIds } } });
-      await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    if (createdUserIds.length > 0) {
+      await prisma.organizationMember.deleteMany({ where: { userId: { in: createdUserIds } } });
+      await prisma.organization.deleteMany({ where: { ownerId: { in: createdUserIds } } });
+      await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
     }
 
     await disconnectDatabase();
@@ -117,14 +137,12 @@ describe('Organizations Module Integration Tests', () => {
       expect(res.body.data.role).toBe('OWNER');
 
       orgAId = res.body.data.id;
+      createdOrgIds.push(orgAId);
 
       // Verify membership in database
       const member = await prisma.organizationMember.findUnique({
         where: {
-          organizationId_userId: {
-            organizationId: orgAId,
-            userId: userA.id,
-          },
+          userId: userA.id,
         },
       });
 
@@ -143,27 +161,49 @@ describe('Organizations Module Integration Tests', () => {
       expect(res.body.data.slug).toMatch(/^beta-systems/);
 
       orgBId = res.body.data.id;
+      createdOrgIds.push(orgBId);
     });
 
     it('should reject duplicate custom slug with 409 Conflict', async () => {
       const customSlug = `unique-slug-${randomUUID().slice(0, 8)}`;
 
+      const slugUser1 = await prisma.user.create({
+        data: {
+          name: 'Slug User 1',
+          email: `slug1.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+          passwordHash: 'dummy',
+        },
+      });
+      const slugUser2 = await prisma.user.create({
+        data: {
+          name: 'Slug User 2',
+          email: `slug2.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+          passwordHash: 'dummy',
+        },
+      });
+      createdUserIds.push(slugUser1.id, slugUser2.id);
+
+      const token1 = generateAccessToken({ userId: slugUser1.id, email: slugUser1.email });
+      const token2 = generateAccessToken({ userId: slugUser2.id, email: slugUser2.email });
+
       // First creation
-      await request(app)
+      const res1 = await request(app)
         .post('/api/v1/organizations')
-        .set('Authorization', `Bearer ${userA.token}`)
+        .set('Authorization', `Bearer ${token1}`)
         .send({ name: 'First Org', slug: customSlug })
         .expect(201);
 
+      createdOrgIds.push(res1.body.data.id);
+
       // Duplicate creation attempt
-      const res = await request(app)
+      const res2 = await request(app)
         .post('/api/v1/organizations')
-        .set('Authorization', `Bearer ${userB.token}`)
+        .set('Authorization', `Bearer ${token2}`)
         .send({ name: 'Second Org', slug: customSlug })
         .expect(409);
 
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('SLUG_ALREADY_EXISTS');
+      expect(res2.body.success).toBe(false);
+      expect(res2.body.error.code).toBe('SLUG_ALREADY_EXISTS');
     });
 
     it('should reject invalid input payload with 422 Validation Error', async () => {
@@ -231,10 +271,10 @@ describe('Organizations Module Integration Tests', () => {
 
   describe('PATCH /api/v1/organizations/:id', () => {
     beforeAll(async () => {
-      // Add User B as MEMBER and UserViewer as VIEWER to Org A
+      // Add dedicated UserMember as MEMBER and UserViewer as VIEWER to Org A
       await prisma.organizationMember.createMany({
         data: [
-          { organizationId: orgAId, userId: userB.id, role: 'MEMBER' },
+          { organizationId: orgAId, userId: userMember.id, role: 'MEMBER' },
           { organizationId: orgAId, userId: userViewer.id, role: 'VIEWER' },
         ],
       });
@@ -258,7 +298,7 @@ describe('Organizations Module Integration Tests', () => {
     it('should reject MEMBER from updating organization (403 Insufficient Permissions)', async () => {
       const res = await request(app)
         .patch(`/api/v1/organizations/${orgAId}`)
-        .set('Authorization', `Bearer ${userB.token}`)
+        .set('Authorization', `Bearer ${userMember.token}`)
         .send({ name: 'Hacked Name' })
         .expect(403);
 
@@ -291,23 +331,56 @@ describe('Organizations Module Integration Tests', () => {
 
   describe('DELETE /api/v1/organizations/:id', () => {
     let orgToDeleteId: string;
+    let tempOwner: { id: string; email: string; token: string };
+    let tempAdmin: { id: string; email: string; token: string };
+    let tempViewer: { id: string; email: string; token: string };
 
     beforeEach(async () => {
-      // Create a temporary org for deletion
+      const [uOwner, uAdmin, uViewer] = await Promise.all([
+        prisma.user.create({
+          data: {
+            name: 'Temp Owner',
+            email: `temp.owner.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+            passwordHash: 'dummy',
+          },
+        }),
+        prisma.user.create({
+          data: {
+            name: 'Temp Admin',
+            email: `temp.admin.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+            passwordHash: 'dummy',
+          },
+        }),
+        prisma.user.create({
+          data: {
+            name: 'Temp Viewer',
+            email: `temp.viewer.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+            passwordHash: 'dummy',
+          },
+        }),
+      ]);
+
+      createdUserIds.push(uOwner.id, uAdmin.id, uViewer.id);
+      tempOwner = { id: uOwner.id, email: uOwner.email, token: generateAccessToken({ userId: uOwner.id, email: uOwner.email }) };
+      tempAdmin = { id: uAdmin.id, email: uAdmin.email, token: generateAccessToken({ userId: uAdmin.id, email: uAdmin.email }) };
+      tempViewer = { id: uViewer.id, email: uViewer.email, token: generateAccessToken({ userId: uViewer.id, email: uViewer.email }) };
+
+      // Create a temporary org for deletion with separate users
       const tempOrg = await prisma.organization.create({
         data: {
           name: 'Temporary Org',
           slug: `temp-org-${randomUUID()}`,
-          ownerId: userA.id,
+          ownerId: tempOwner.id,
         },
       });
       orgToDeleteId = tempOrg.id;
+      createdOrgIds.push(tempOrg.id);
 
       await prisma.organizationMember.createMany({
         data: [
-          { organizationId: orgToDeleteId, userId: userA.id, role: 'OWNER' },
-          { organizationId: orgToDeleteId, userId: userB.id, role: 'ADMIN' },
-          { organizationId: orgToDeleteId, userId: userViewer.id, role: 'VIEWER' },
+          { organizationId: orgToDeleteId, userId: tempOwner.id, role: 'OWNER' },
+          { organizationId: orgToDeleteId, userId: tempAdmin.id, role: 'ADMIN' },
+          { organizationId: orgToDeleteId, userId: tempViewer.id, role: 'VIEWER' },
         ],
       });
     });
@@ -325,7 +398,7 @@ describe('Organizations Module Integration Tests', () => {
     it('should reject VIEWER from deleting organization (403 Insufficient Permissions)', async () => {
       const res = await request(app)
         .delete(`/api/v1/organizations/${orgToDeleteId}`)
-        .set('Authorization', `Bearer ${userViewer.token}`)
+        .set('Authorization', `Bearer ${tempViewer.token}`)
         .expect(403);
 
       expect(res.body.success).toBe(false);
@@ -335,7 +408,7 @@ describe('Organizations Module Integration Tests', () => {
     it('should reject ADMIN from deleting organization (403 Insufficient Permissions)', async () => {
       const res = await request(app)
         .delete(`/api/v1/organizations/${orgToDeleteId}`)
-        .set('Authorization', `Bearer ${userB.token}`)
+        .set('Authorization', `Bearer ${tempAdmin.token}`)
         .expect(403);
 
       expect(res.body.success).toBe(false);
@@ -345,7 +418,7 @@ describe('Organizations Module Integration Tests', () => {
     it('should allow OWNER to delete organization (200)', async () => {
       const res = await request(app)
         .delete(`/api/v1/organizations/${orgToDeleteId}`)
-        .set('Authorization', `Bearer ${userA.token}`)
+        .set('Authorization', `Bearer ${tempOwner.token}`)
         .expect(200);
 
       expect(res.body.success).toBe(true);

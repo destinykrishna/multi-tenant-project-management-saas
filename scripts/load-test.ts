@@ -3,7 +3,10 @@ import { prisma, disconnectDatabase } from '../src/config/database.js';
 import { generateAccessToken } from '../src/utils/jwt.js';
 import { OrganizationRole } from '../src/constants/roles.js';
 
-const TARGET_URL = process.env['TARGET_URL'] || 'http://localhost';
+import { env } from '../src/config/env.js';
+
+const TARGET_PORT = env.PORT || 5000;
+const TARGET_URL = process.env['TARGET_URL'] || `http://localhost:${TARGET_PORT}`;
 
 interface BenchmarkScenario {
   name: string;
@@ -111,6 +114,22 @@ async function main() {
 
   const { token, organizationId } = await setupTestContext();
 
+  try {
+    const probe = await fetch(`${TARGET_URL}/health`);
+    if (!probe.ok) {
+      console.warn(`⚠️ Target server returned HTTP ${probe.status} at ${TARGET_URL}/health`);
+    } else {
+      console.log(`✅ Pre-flight connectivity check passed against ${TARGET_URL}/health`);
+    }
+  } catch (err: any) {
+    console.error(`\n❌ PRE-FLIGHT CHECK FAILED: Cannot connect to target server at ${TARGET_URL}/health.`);
+    console.error(`   Please ensure the backend dev server is running (e.g. 'npm run dev' on port ${TARGET_PORT}).`);
+    console.error(`   If your server or Nginx is listening on another port/host, run with:`);
+    console.error(`   TARGET_URL=http://localhost:<port> npm run test:load\n`);
+    await disconnectDatabase();
+    process.exit(1);
+  }
+
   const scenarios: BenchmarkScenario[] = [
     // ─── Scenario 1: Public Health Check (Progressive Concurrency) ─────────
     {
@@ -143,7 +162,7 @@ async function main() {
         name: 'Authenticated Projects Listing (50 Concurrency)',
         endpoint: `/api/v1/organizations/${organizationId}/projects`,
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'x-load-test': 'true' },
         connections: 50,
         duration: 10,
       },
@@ -152,7 +171,7 @@ async function main() {
         name: 'Authenticated Dashboard Aggregations (50 Concurrency)',
         endpoint: `/api/v1/organizations/${organizationId}/dashboard`,
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}`, 'x-load-test': 'true' },
         connections: 50,
         duration: 10,
       },

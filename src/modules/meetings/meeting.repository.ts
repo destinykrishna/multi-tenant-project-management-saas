@@ -17,6 +17,7 @@ export interface CreateMeetingRepoData {
   googleMeetLink?: string | null;
   googleMeetId?: string | null;
   isMeetEnabled?: boolean;
+  attendeeUserIds?: string[];
 }
 
 export interface UpdateMeetingRepoData {
@@ -34,6 +35,7 @@ export interface UpdateMeetingRepoData {
   googleMeetLink?: string | null;
   googleMeetId?: string | null;
   isMeetEnabled?: boolean;
+  attendeeUserIds?: string[];
 }
 
 export interface FindMeetingsFilter {
@@ -43,6 +45,23 @@ export interface FindMeetingsFilter {
   skip?: number;
   take?: number;
 }
+
+const meetingInclude = {
+  createdBy: {
+    select: { id: true, name: true, email: true },
+  },
+  project: {
+    select: { id: true, name: true, key: true },
+  },
+  attendees: {
+    include: {
+      user: {
+        select: { id: true, name: true, email: true, avatarUrl: true },
+      },
+    },
+    orderBy: { createdAt: 'asc' as const },
+  },
+};
 
 export class MeetingRepository {
   async create(data: CreateMeetingRepoData) {
@@ -64,15 +83,15 @@ export class MeetingRepository {
         googleMeetLink: data.googleMeetLink,
         googleMeetId: data.googleMeetId,
         isMeetEnabled: data.isMeetEnabled ?? false,
+        ...(data.attendeeUserIds && data.attendeeUserIds.length > 0
+          ? {
+              attendees: {
+                create: data.attendeeUserIds.map((userId) => ({ userId })),
+              },
+            }
+          : {}),
       },
-      include: {
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        project: {
-          select: { id: true, name: true, key: true },
-        },
-      },
+      include: meetingInclude,
     });
   }
 
@@ -82,14 +101,7 @@ export class MeetingRepository {
         id,
         organizationId,
       },
-      include: {
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        project: {
-          select: { id: true, name: true, key: true },
-        },
-      },
+      include: meetingInclude,
     });
   }
 
@@ -110,14 +122,7 @@ export class MeetingRepository {
         skip: filter.skip,
         take: filter.take,
         orderBy: { startTime: 'asc' },
-        include: {
-          createdBy: {
-            select: { id: true, name: true, email: true },
-          },
-          project: {
-            select: { id: true, name: true, key: true },
-          },
-        },
+        include: meetingInclude,
       }),
       prisma.meeting.count({ where }),
     ]);
@@ -126,25 +131,30 @@ export class MeetingRepository {
   }
 
   async update(organizationId: string, id: string, data: UpdateMeetingRepoData) {
+    const { attendeeUserIds, ...rest } = data;
+
     return prisma.meeting.update({
       where: {
         id,
         organizationId,
       },
-      data,
-      include: {
-        createdBy: {
-          select: { id: true, name: true, email: true },
-        },
-        project: {
-          select: { id: true, name: true, key: true },
-        },
+      data: {
+        ...rest,
+        ...(attendeeUserIds !== undefined
+          ? {
+              attendees: {
+                deleteMany: {},
+                create: attendeeUserIds.map((userId) => ({ userId })),
+              },
+            }
+          : {}),
       },
+      include: meetingInclude,
     });
   }
 
   async delete(organizationId: string, id: string) {
-    return prisma.meeting.delete({
+    return prisma.meeting.deleteMany({
       where: {
         id,
         organizationId,
@@ -154,3 +164,4 @@ export class MeetingRepository {
 }
 
 export const meetingRepository = new MeetingRepository();
+

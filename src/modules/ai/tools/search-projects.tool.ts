@@ -26,6 +26,8 @@ export class SearchProjectsTool implements AgentTool<SearchProjectsInput, Saniti
   readonly name = 'searchProjects';
   readonly description = 'Search and list projects within the current organization by status or keyword.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = searchProjectsSchema;
 
   readonly toolDefinition = {

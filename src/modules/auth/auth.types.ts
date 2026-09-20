@@ -4,6 +4,7 @@ export interface SafeUser {
   email: string;
   avatarUrl: string | null;
   isEmailVerified: boolean;
+  totpEnabled?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,11 +24,19 @@ export interface RegisterResult {
   organization: SafeOrganization;
 }
 
-export interface LoginResult {
+export interface StandardLoginSuccess {
+  requiresMfa?: false;
   accessToken: string;
   refreshToken: string;
   user: SafeUser;
 }
+
+export interface MfaRequiredResult {
+  requiresMfa: true;
+  mfaToken: string;
+}
+
+export type LoginResult = StandardLoginSuccess | MfaRequiredResult;
 
 export interface RefreshResult {
   accessToken: string;

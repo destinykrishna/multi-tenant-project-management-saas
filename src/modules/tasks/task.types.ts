@@ -7,6 +7,12 @@ export interface SafeUserSummary {
   avatarUrl: string | null;
 }
 
+export interface SafeTeamSummary {
+  id: string;
+  name: string;
+  description: string | null;
+}
+
 export interface TaskResponse {
   id: string;
   projectId: string;
@@ -16,6 +22,8 @@ export interface TaskResponse {
   priority: TaskPriority;
   assigneeId: string | null;
   assignee?: SafeUserSummary | null;
+  teamId?: string | null;
+  team?: SafeTeamSummary | null;
   createdById: string;
   createdBy?: SafeUserSummary;
   dueDate: Date | null;

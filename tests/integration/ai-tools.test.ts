@@ -148,7 +148,7 @@ describe('Safe Read-Only AI Tools Layer', () => {
 
     it('should export compliant JSON schemas for LLM function calling', () => {
       const defs = toolRegistry.getToolDefinitions();
-      expect(defs.length).toBe(7);
+      expect(defs.length).toBe(8); // 7 existing read-only tools + listMeetings (ALL_ROLES)
 
       for (const def of defs) {
         expect(def.name).toBeDefined();

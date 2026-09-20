@@ -1,10 +1,11 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
 export interface AccessTokenPayload {
   userId: string;
   email: string;
+  jti?: string;
 }
 
 export interface RefreshTokenPayload {
@@ -17,7 +18,12 @@ export function hashToken(token: string): string {
 }
 
 export function generateAccessToken(payload: AccessTokenPayload): string {
-  return jwt.sign(payload, env.JWT_SECRET, {
+  const tokenPayload = {
+    ...payload,
+    jti: payload.jti || randomUUID(),
+  };
+
+  return jwt.sign(tokenPayload, env.JWT_SECRET, {
     expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'],
   });
 }

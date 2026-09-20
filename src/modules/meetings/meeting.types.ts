@@ -6,6 +6,7 @@ export interface CreateMeetingInput {
   location?: string | null;
   projectId?: string;
   taskId?: string;
+  attendeeUserIds?: string[];
   syncWithGoogle?: boolean;
   createGoogleMeet?: boolean;
 }
@@ -18,8 +19,22 @@ export interface UpdateMeetingInput {
   location?: string | null;
   projectId?: string | null;
   taskId?: string | null;
+  attendeeUserIds?: string[];
   syncWithGoogle?: boolean;
   createGoogleMeet?: boolean;
+}
+
+export interface MeetingAttendeeResponse {
+  id: string;
+  meetingId: string;
+  userId: string;
+  createdAt: Date;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string | null;
+  };
 }
 
 export interface MeetingResponse {
@@ -52,4 +67,6 @@ export interface MeetingResponse {
     name: string;
     key: string;
   } | null;
+  attendees?: MeetingAttendeeResponse[];
 }
+

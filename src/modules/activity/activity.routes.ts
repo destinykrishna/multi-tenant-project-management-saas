@@ -54,4 +54,21 @@ router.get(
   activityController.listByEntity,
 );
 
+// Verify audit trail cryptographic integrity (OWNER, ADMIN only)
+router.get(
+  '/audit/verify-integrity',
+  validateRequest({
+    params: activityOrgParamSchema,
+  }),
+  authorizeOrgRole(
+    [
+      OrganizationRole.OWNER,
+      OrganizationRole.ADMIN,
+    ],
+    { orgIdParam: 'organizationId' },
+  ),
+  activityController.verifyIntegrity,
+);
+
 export const activityRouter = router;
+

@@ -39,6 +39,17 @@ export class ActivityController {
       next(error);
     }
   };
+
+  verifyIntegrity = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const organizationId = req.params['organizationId'] as string;
+      const result = await this.service.verifyAuditChainIntegrity(organizationId);
+
+      sendSuccess(res, result, 200, 'Audit trail integrity verified');
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const activityController = new ActivityController();

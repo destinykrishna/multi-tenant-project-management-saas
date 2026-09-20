@@ -39,6 +39,8 @@ export class GetTaskTool implements AgentTool<GetTaskInput, SanitizedTaskDetails
   readonly name = 'getTask';
   readonly description = 'Get detailed information about a specific task by its ID within a project.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = getTaskSchema;
 
   readonly toolDefinition = {

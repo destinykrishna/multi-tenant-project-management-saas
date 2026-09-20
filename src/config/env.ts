@@ -63,6 +63,25 @@ const envSchema = z.object({
   AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   AI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(2048),
 
+  // Cloudflare CDN & Edge Security
+  CLOUDFLARE_ENABLED: z
+    .string()
+    .transform((val) => val === 'true')
+    .or(z.boolean())
+    .default(false),
+  CLOUDFLARE_ZONE_ID: z.string().default(''),
+  CLOUDFLARE_API_TOKEN: z.string().default(''),
+  CLOUDFLARE_TURNSTILE_SECRET_KEY: z.string().default(''),
+  CLOUDFLARE_ORIGIN_PULL_SECRET: z.string().default(''),
+
+  // Reverse Proxy & Nginx
+  TRUST_PROXY: z
+    .string()
+    .transform((val) => (val === 'true' ? 1 : val === 'false' ? 0 : Number(val) || 1))
+    .or(z.number())
+    .or(z.boolean())
+    .default(1),
+
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

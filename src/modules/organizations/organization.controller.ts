@@ -105,10 +105,12 @@ export class OrganizationController {
     try {
       const organizationId = req.params['id'] as string;
       const input = req.body as AddMemberInput;
+      const invitedById = req.user?.id;
 
-      const result = await this.service.addMember(organizationId, input);
+      const result = await this.service.addMember(organizationId, input, invitedById);
 
-      sendSuccess(res, result, 201, 'Member added successfully');
+      const message = result.isPending ? 'Invitation sent successfully' : 'Member added successfully';
+      sendSuccess(res, result, 201, message);
     } catch (error) {
       next(error);
     }

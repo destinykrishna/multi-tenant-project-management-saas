@@ -5,8 +5,10 @@ import { logger } from './config/logger.js';
 import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
+import { startAllWorkers, type RunningWorkers } from './jobs/workers/index.js';
 
 let server: Server | undefined;
+let workers: RunningWorkers | undefined;
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -21,6 +23,11 @@ async function gracefulShutdown(signal: string): Promise<void> {
   forceExitTimer.unref();
 
   try {
+    if (workers) {
+      await workers.stop();
+      logger.info('Background workers stopped');
+    }
+
     if (server) {
       const activeServer = server;
       await new Promise<void>((resolve, reject) => {
@@ -50,6 +57,8 @@ async function bootstrap(): Promise<void> {
   try {
     await connectDatabase();
     await connectRedis();
+
+    workers = startAllWorkers();
 
     server = app.listen(env.PORT, () => {
       logger.info(

@@ -24,6 +24,8 @@ export class SearchMembersTool implements AgentTool<SearchMembersInput, Sanitize
   readonly name = 'searchMembers';
   readonly description = 'List and filter active members and their roles within the current organization.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = searchMembersSchema;
 
   readonly toolDefinition = {

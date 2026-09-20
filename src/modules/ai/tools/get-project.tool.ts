@@ -28,6 +28,8 @@ export class GetProjectTool implements AgentTool<GetProjectInput, SanitizedProje
   readonly name = 'getProject';
   readonly description = 'Get detailed information about a specific project by its ID within the organization.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = getProjectSchema;
 
   readonly toolDefinition = {

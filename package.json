@@ -21,9 +21,11 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch --passWithNoTests",
     "test:coverage": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage --runInBand --passWithNoTests",
     "test:load": "tsx scripts/load-test.ts",
+    "test:automation": "tsx scripts/run-automation-tests.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "seed:demo": "tsx scripts/seed-rich-demo-data.ts"
   },
   "keywords": [],
   "author": "",

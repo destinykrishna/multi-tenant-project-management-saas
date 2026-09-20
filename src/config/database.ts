@@ -80,3 +80,25 @@ export async function disconnectDatabase(): Promise<void> {
   await prisma.$disconnect();
   logger.info('Database connection closed');
 }
+
+/**
+ * Executes a database operation within a strict tenant isolation context.
+ * Sets the PostgreSQL session variable `app.current_org_id`, activating
+ * native database Row-Level Security (RLS) enforcement.
+ */
+export async function withTenantContext<T>(
+  organizationId: string,
+  fn: (tx: PrismaClient) => Promise<T>,
+): Promise<T> {
+  if (!organizationId) {
+    return fn(prisma);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // Sanitize organizationId for safe session variable setting
+    const sanitizedOrgId = organizationId.replace(/[^a-zA-Z0-9_-]/g, '');
+    await tx.$executeRawUnsafe(`SET LOCAL app.current_org_id = '${sanitizedOrgId}';`);
+    return fn(tx as unknown as PrismaClient);
+  });
+}
+

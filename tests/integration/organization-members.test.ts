@@ -208,18 +208,20 @@ describe('Organization Member Management Integration Tests', () => {
       expect(res.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
     });
 
-    it('should reject adding a non-existent email (404 User Not Found)', async () => {
+    it('should create a pending invitation when inviting a non-existent email (201)', async () => {
+      const inviteEmail = `does.not.exist.${Date.now()}.${randomUUID()}@example.com`;
       const res = await request(app)
         .post(`/api/v1/organizations/${orgId}/members`)
         .set('Authorization', `Bearer ${ownerUser.token}`)
         .send({
-          email: 'does.not.exist@example.com',
+          email: inviteEmail,
           role: 'MEMBER',
         })
-        .expect(404);
+        .expect(201);
 
-      expect(res.body.success).toBe(false);
-      expect(res.body.error.code).toBe('USER_NOT_FOUND');
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.isPending).toBe(true);
+      expect(res.body.data.user.email).toBe(inviteEmail);
     });
   });
 

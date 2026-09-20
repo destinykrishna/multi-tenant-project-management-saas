@@ -19,15 +19,22 @@ export class SmtpEmailProvider implements IEmailProvider {
       });
     }
 
+    const isGmailUser = env.SMTP_USER?.trim().endsWith('@gmail.com');
+    const host =
+      isGmailUser && (env.SMTP_HOST === 'smtp.ethereal.email' || env.SMTP_HOST === 'localhost' || !env.SMTP_HOST)
+        ? 'smtp.gmail.com'
+        : env.SMTP_HOST;
+    const cleanPass = env.SMTP_PASS ? env.SMTP_PASS.replace(/\s+/g, '') : '';
+
     const smtpOptions: SMTPTransport.Options = {
-      host: env.SMTP_HOST,
+      host,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
       auth:
-        env.SMTP_USER && env.SMTP_PASS
+        env.SMTP_USER && cleanPass
           ? {
-              user: env.SMTP_USER,
-              pass: env.SMTP_PASS,
+              user: env.SMTP_USER.trim(),
+              pass: cleanPass,
             }
           : undefined,
     };
@@ -61,10 +68,27 @@ export class SmtpEmailProvider implements IEmailProvider {
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
-      logger.error(
-        { error, to: message.to, subject: message.subject },
-        'Failed to send email via SMTP provider',
-      );
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'EAUTH'
+      ) {
+        logger.error(
+          {
+            to: message.to,
+            host: env.SMTP_HOST,
+            user: env.SMTP_USER,
+            tip: 'If using Gmail (smtp.gmail.com), you MUST use a 16-character Google App Password from https://myaccount.google.com/apppasswords, not your standard Google login password.',
+          },
+          'SMTP Authentication Failed (535 EAUTH)',
+        );
+      } else {
+        logger.error(
+          { error, to: message.to, subject: message.subject },
+          'Failed to send email via SMTP provider',
+        );
+      }
       throw error;
     }
   }

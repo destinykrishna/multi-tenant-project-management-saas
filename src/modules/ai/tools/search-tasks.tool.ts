@@ -47,6 +47,8 @@ export class SearchTasksTool implements AgentTool<SearchTasksInput, SanitizedTas
   readonly name = 'searchTasks';
   readonly description = 'Search and list tasks inside a specific project by keyword, status, priority, or assignee.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = searchTasksSchema;
 
   readonly toolDefinition = {

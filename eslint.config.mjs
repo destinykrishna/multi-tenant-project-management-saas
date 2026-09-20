@@ -7,7 +7,7 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        project: ["./tsconfig.json", "./tests/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -23,6 +23,15 @@ export default tseslint.config(
         { allowNumber: true, allowBoolean: true },
       ],
       "@typescript-eslint/no-extraneous-class": "off",
+    },
+  },
+  {
+    files: ["tests/**/*.ts"],
+    rules: {
+      "@typescript-eslint/no-unsafe-assignment": "off",
+      "@typescript-eslint/no-unsafe-member-access": "off",
+      "@typescript-eslint/no-unsafe-call": "off",
+      "@typescript-eslint/no-unsafe-argument": "off",
     },
   },
   {

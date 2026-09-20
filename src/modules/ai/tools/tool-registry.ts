@@ -10,11 +10,18 @@ import { getTaskTool } from './get-task.tool.js';
 import { searchMembersTool } from './search-members.tool.js';
 import { getMemberTool } from './get-member.tool.js';
 import { getRecentActivityTool } from './get-recent-activity.tool.js';
+import { createTaskTool } from './create-task.tool.js';
+import { updateTaskTool } from './update-task.tool.js';
+import { assignTaskTool } from './assign-task.tool.js';
+import { listMeetingsTool } from './list-meetings.tool.js';
+import { scheduleMeetingTool } from './schedule-meeting.tool.js';
+import { sendEmailTool } from './send-email.tool.js';
 
 export class ToolRegistry {
   private readonly tools = new Map<string, AgentTool>();
 
   constructor() {
+    // Read-only tools
     this.register(searchProjectsTool);
     this.register(getProjectTool);
     this.register(searchTasksTool);
@@ -22,6 +29,16 @@ export class ToolRegistry {
     this.register(searchMembersTool);
     this.register(getMemberTool);
     this.register(getRecentActivityTool);
+
+    // Controlled task mutation tools
+    this.register(createTaskTool);
+    this.register(updateTaskTool);
+    this.register(assignTaskTool);
+
+    // External side-effect tools (Calendar, Meet, Gmail)
+    this.register(listMeetingsTool);
+    this.register(scheduleMeetingTool);
+    this.register(sendEmailTool);
   }
 
   register(tool: AgentTool): void {

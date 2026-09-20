@@ -162,7 +162,7 @@ export class GoogleCalendarProvider implements ICalendarProvider {
         { status: response.status, errorText, userId, title: event.title },
         'Google Calendar event creation failed',
       );
-      this.handleApiError(response.status, 'create event');
+      this.handleApiError(response.status, 'create event', errorText);
     }
 
     const data = (await response.json()) as GoogleApiEventResponse;
@@ -244,7 +244,7 @@ export class GoogleCalendarProvider implements ICalendarProvider {
         { status: response.status, errorText, userId, eventId },
         'Google Calendar event update failed',
       );
-      this.handleApiError(response.status, 'update event');
+      this.handleApiError(response.status, 'update event', errorText);
     }
 
     const data = (await response.json()) as GoogleApiEventResponse;
@@ -269,7 +269,7 @@ export class GoogleCalendarProvider implements ICalendarProvider {
         { status: response.status, errorText, userId, eventId },
         'Google Calendar event deletion failed',
       );
-      this.handleApiError(response.status, 'delete event');
+      this.handleApiError(response.status, 'delete event', errorText);
     }
 
     logger.info({ eventId, userId }, 'Google Calendar event deleted successfully');
@@ -290,7 +290,7 @@ export class GoogleCalendarProvider implements ICalendarProvider {
         { status: response.status, errorText, userId, eventId },
         'Google Calendar get event failed',
       );
-      this.handleApiError(response.status, 'get event');
+      this.handleApiError(response.status, 'get event', errorText);
     }
 
     const data = (await response.json()) as GoogleApiEventResponse;
@@ -320,37 +320,49 @@ export class GoogleCalendarProvider implements ICalendarProvider {
         { status: response.status, errorText, userId },
         'Google Calendar list events failed',
       );
-      this.handleApiError(response.status, 'list events');
+      this.handleApiError(response.status, 'list events', errorText);
     }
 
     const data = (await response.json()) as { items?: GoogleApiEventResponse[] };
     return (data.items || []).map((item) => this.mapGoogleEvent(item));
   }
 
-  private handleApiError(status: number, operation: string): never {
+  private handleApiError(status: number, operation: string, errorText?: string): never {
+    let googleMessage = '';
+    if (errorText) {
+      try {
+        const parsed = JSON.parse(errorText);
+        if (parsed?.error?.message) {
+          googleMessage = parsed.error.message;
+        }
+      } catch {
+        // Ignore JSON parse error
+      }
+    }
+
     if (status === 401) {
       throw new UnauthorizedError(
-        'Google authentication expired or invalid. Please reconnect.',
+        googleMessage || 'Google authentication expired or invalid. Please reconnect.',
         'GOOGLE_AUTH_INVALID',
       );
     }
     if (status === 403) {
       throw new ForbiddenError(
-        'Google Calendar permission denied or quota exceeded.',
+        googleMessage || 'Google Calendar permission denied or quota exceeded.',
         'GOOGLE_CALENDAR_FORBIDDEN',
       );
     }
     if (status === 404 || status === 410) {
       throw new NotFoundError(
-        'Google Calendar event not found or has been deleted',
+        googleMessage || 'Google Calendar event not found or has been deleted',
         'GOOGLE_CALENDAR_EVENT_NOT_FOUND',
       );
     }
     if (status === 429) {
-      throw new AppError('Google Calendar rate limit exceeded', 429, 'GOOGLE_CALENDAR_RATE_LIMIT');
+      throw new AppError(googleMessage || 'Google Calendar rate limit exceeded', 429, 'GOOGLE_CALENDAR_RATE_LIMIT');
     }
     throw new BadRequestError(
-      `Google Calendar API ${operation} failed with HTTP ${status}`,
+      googleMessage || `Google Calendar API ${operation} failed with HTTP ${status}`,
       'GOOGLE_CALENDAR_ERROR',
     );
   }

@@ -85,6 +85,32 @@ export class ActivityRepository {
       },
     });
   }
+
+  async findLatestByOrganization(organizationId: string) {
+    return prisma.activityLog.findFirst({
+      where: { organizationId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, metadata: true, createdAt: true },
+    });
+  }
+
+  async findAllForVerification(organizationId: string, take = 500) {
+    return prisma.activityLog.findMany({
+      where: { organizationId },
+      orderBy: { createdAt: 'asc' },
+      take,
+      select: {
+        id: true,
+        organizationId: true,
+        userId: true,
+        entityType: true,
+        entityId: true,
+        action: true,
+        metadata: true,
+        createdAt: true,
+      },
+    });
+  }
 }
 
 export const activityRepository = new ActivityRepository();

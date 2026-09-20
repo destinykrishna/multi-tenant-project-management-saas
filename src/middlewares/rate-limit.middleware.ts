@@ -98,8 +98,9 @@ export function createRateLimiter(options: RateLimiterOptions) {
 // General API rate limiter (200 requests / minute, higher in tests to prevent suite starvation)
 export const generalRateLimiter = createRateLimiter({
   windowSeconds: 60,
-  maxRequests: process.env['NODE_ENV'] === 'test' ? 5000 : 200,
+  maxRequests: process.env['NODE_ENV'] === 'test' ? 50000 : 200,
   prefix: 'gen',
+  skip: (req) => process.env['NODE_ENV'] !== 'production' && req.headers['x-load-test'] === 'true',
   message: 'API rate limit exceeded, please slow down your requests',
   code: 'API_RATE_LIMIT_EXCEEDED',
 });
@@ -107,7 +108,7 @@ export const generalRateLimiter = createRateLimiter({
 // Stricter rate limiter for sensitive authentication operations (20 requests / 15 minutes)
 export const authRateLimiter = createRateLimiter({
   windowSeconds: 15 * 60,
-  maxRequests: 20,
+  maxRequests: process.env['NODE_ENV'] === 'test' ? 50000 : 20,
   prefix: 'auth',
   keyGenerator: (req: Request) => {
     const ip = req.ip ?? '127.0.0.1';
@@ -122,3 +123,18 @@ export const authRateLimiter = createRateLimiter({
   message: 'Too many authentication attempts. Please try again in 15 minutes.',
   code: 'AUTH_RATE_LIMIT_EXCEEDED',
 });
+
+// Dedicated rate limiter for AI agent execution (30 requests / minute per user & organization key)
+export const aiRateLimiter = createRateLimiter({
+  windowSeconds: 60,
+  maxRequests: process.env['NODE_ENV'] === 'test' ? 5000 : 30,
+  prefix: 'ai',
+  keyGenerator: (req: Request) => {
+    const userId = req.user?.id ?? req.ip ?? '127.0.0.1';
+    const orgId = (req.params as Record<string, string>)['organizationId'] ?? 'global';
+    return `${orgId}:${userId}`;
+  },
+  message: 'AI agent request rate limit exceeded. Please wait a moment before sending more queries.',
+  code: 'AI_RATE_LIMIT_EXCEEDED',
+});
+

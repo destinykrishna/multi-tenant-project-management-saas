@@ -44,6 +44,18 @@ export class TaskService {
     }
   }
 
+  private async validateTeam(organizationId: string, teamId?: string | null) {
+    if (!teamId) return;
+
+    const isTeam = await this.repository.isTeamInOrg(organizationId, teamId);
+    if (!isTeam) {
+      throw new BadRequestError(
+        'Team must belong to the organization',
+        'INVALID_TEAM',
+      );
+    }
+  }
+
   async createTask(
     organizationId: string,
     projectId: string,
@@ -52,6 +64,7 @@ export class TaskService {
   ): Promise<TaskResponse> {
     await this.validateProjectInOrg(organizationId, projectId);
     await this.validateAssignee(organizationId, input.assigneeId);
+    await this.validateTeam(organizationId, input.teamId);
 
     let position = input.position;
     if (position === undefined) {
@@ -66,6 +79,7 @@ export class TaskService {
       status: input.status,
       priority: input.priority,
       assigneeId: input.assigneeId ?? null,
+      teamId: input.teamId ?? null,
       dueDate: input.dueDate ?? null,
       position,
       createdById: userId,
@@ -82,6 +96,7 @@ export class TaskService {
         status: task.status,
         priority: task.priority,
         assigneeId: task.assigneeId,
+        teamId: task.teamId,
       },
     });
 
@@ -105,6 +120,8 @@ export class TaskService {
       priority: task.priority,
       assigneeId: task.assigneeId,
       assignee: task.assignee,
+      teamId: task.teamId,
+      team: task.team,
       createdById: task.createdById,
       createdBy: task.createdBy,
       dueDate: task.dueDate,
@@ -128,6 +145,7 @@ export class TaskService {
       status: query.status,
       priority: query.priority,
       assigneeId: query.assigneeId,
+      teamId: query.teamId,
       search: query.search,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
@@ -144,6 +162,8 @@ export class TaskService {
       priority: t.priority,
       assigneeId: t.assigneeId,
       assignee: t.assignee,
+      teamId: t.teamId,
+      team: t.team,
       createdById: t.createdById,
       createdBy: t.createdBy,
       dueDate: t.dueDate,
@@ -177,6 +197,8 @@ export class TaskService {
       priority: task.priority,
       assigneeId: task.assigneeId,
       assignee: task.assignee,
+      teamId: task.teamId,
+      team: task.team,
       createdById: task.createdById,
       createdBy: task.createdBy,
       dueDate: task.dueDate,
@@ -185,6 +207,14 @@ export class TaskService {
       updatedAt: task.updatedAt,
       _count: task._count,
     };
+  }
+
+  async getTaskInOrg(organizationId: string, taskId: string) {
+    const task = await this.repository.findTaskInOrg(organizationId, taskId);
+    if (!task) {
+      throw new NotFoundError('Task not found in this organization', 'TASK_NOT_FOUND');
+    }
+    return task;
   }
 
   async updateTask(
@@ -202,6 +232,9 @@ export class TaskService {
 
     if (input.assigneeId !== undefined) {
       await this.validateAssignee(organizationId, input.assigneeId);
+    }
+    if (input.teamId !== undefined) {
+      await this.validateTeam(organizationId, input.teamId);
     }
 
     if (input.status && input.status !== existing.status) {
@@ -222,6 +255,7 @@ export class TaskService {
       ...(input.status ? { status: input.status } : {}),
       ...(input.priority ? { priority: input.priority } : {}),
       ...(input.assigneeId !== undefined ? { assigneeId: input.assigneeId } : {}),
+      ...(input.teamId !== undefined ? { teamId: input.teamId } : {}),
       ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
       ...(input.position !== undefined ? { position: input.position } : {}),
     });
@@ -232,9 +266,17 @@ export class TaskService {
     if (input.status && input.status !== existing.status) {
       action = ActivityAction.TASK_STATUS_CHANGED;
       metadata = { previousStatus: existing.status, newStatus: input.status };
-    } else if (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) {
+    } else if (
+      (input.assigneeId !== undefined && input.assigneeId !== existing.assigneeId) ||
+      (input.teamId !== undefined && input.teamId !== existing.teamId)
+    ) {
       action = ActivityAction.TASK_ASSIGNED;
-      metadata = { previousAssigneeId: existing.assigneeId, newAssigneeId: input.assigneeId };
+      metadata = {
+        previousAssigneeId: existing.assigneeId,
+        newAssigneeId: input.assigneeId !== undefined ? input.assigneeId : existing.assigneeId,
+        previousTeamId: existing.teamId,
+        newTeamId: input.teamId !== undefined ? input.teamId : existing.teamId,
+      };
     }
 
     await this.activity.logActivity({
@@ -290,6 +332,8 @@ export class TaskService {
       priority: updated.priority,
       assigneeId: updated.assigneeId,
       assignee: updated.assignee,
+      teamId: updated.teamId,
+      team: updated.team,
       createdById: updated.createdById,
       createdBy: updated.createdBy,
       dueDate: updated.dueDate,

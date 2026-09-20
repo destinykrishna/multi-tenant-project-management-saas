@@ -98,3 +98,22 @@ export interface AiGenerateResponse {
   sources?: AiSourceReference[];
   usage?: LlmUsage;
 }
+
+export interface AgentRunRequest {
+  message: string;
+  includeRagContext?: boolean;
+  maxSteps?: number;
+  maxToolCalls?: number;
+  temperature?: number;
+  timeoutMs?: number;
+}
+
+export interface AgentRunResponse {
+  answer: string;
+  stepsCount: number;
+  toolCallsCount: number;
+  toolsUsed: string[];
+  sources?: AiSourceReference[];
+  usage?: LlmUsage;
+}
+

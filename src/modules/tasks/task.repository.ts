@@ -8,6 +8,7 @@ export interface CreateTaskRepoData {
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId?: string | null;
+  teamId?: string | null;
   dueDate?: Date | null;
   position: number;
   createdById: string;
@@ -19,6 +20,7 @@ export interface UpdateTaskRepoData {
   status?: TaskStatus;
   priority?: TaskPriority;
   assigneeId?: string | null;
+  teamId?: string | null;
   dueDate?: Date | null;
   position?: number;
 }
@@ -27,12 +29,50 @@ export interface FindTasksFilter {
   status?: TaskStatus;
   priority?: TaskPriority;
   assigneeId?: string;
+  teamId?: string;
   search?: string;
   sortBy: 'createdAt' | 'dueDate' | 'priority' | 'position' | 'title' | 'updatedAt';
   sortOrder: 'asc' | 'desc';
   skip: number;
   take: number;
 }
+
+const taskIncludes = {
+  project: {
+    select: {
+      id: true,
+      organizationId: true,
+    },
+  },
+  createdBy: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+    },
+  },
+  assignee: {
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+    },
+  },
+  team: {
+    select: {
+      id: true,
+      name: true,
+      description: true,
+    },
+  },
+  _count: {
+    select: {
+      comments: true,
+    },
+  },
+} as const;
 
 export class TaskRepository {
   async findProjectInOrg(organizationId: string, projectId: string) {
@@ -41,6 +81,18 @@ export class TaskRepository {
         id: projectId,
         organizationId,
       },
+    });
+  }
+
+  async findTaskInOrg(organizationId: string, taskId: string) {
+    return prisma.task.findFirst({
+      where: {
+        id: taskId,
+        project: {
+          organizationId,
+        },
+      },
+      include: taskIncludes,
     });
   }
 
@@ -54,6 +106,16 @@ export class TaskRepository {
       },
     });
     return !!member;
+  }
+
+  async isTeamInOrg(organizationId: string, teamId: string): Promise<boolean> {
+    const team = await prisma.team.findFirst({
+      where: {
+        id: teamId,
+        organizationId,
+      },
+    });
+    return !!team;
   }
 
   async getMaxPosition(projectId: string, status: TaskStatus): Promise<number> {
@@ -82,33 +144,12 @@ export class TaskRepository {
         status: data.status,
         priority: data.priority,
         assigneeId: data.assigneeId,
+        teamId: data.teamId,
         dueDate: data.dueDate,
         position: data.position,
         createdById: data.createdById,
       },
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        _count: {
-          select: {
-            comments: true,
-          },
-        },
-      },
+      include: taskIncludes,
     });
   }
 
@@ -118,29 +159,7 @@ export class TaskRepository {
         id: taskId,
         projectId,
       },
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        _count: {
-          select: {
-            comments: true,
-          },
-        },
-      },
+      include: taskIncludes,
     });
   }
 
@@ -150,6 +169,7 @@ export class TaskRepository {
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.priority ? { priority: filter.priority } : {}),
       ...(filter.assigneeId ? { assigneeId: filter.assigneeId } : {}),
+      ...(filter.teamId ? { teamId: filter.teamId } : {}),
       ...(filter.search
         ? {
             OR: [
@@ -168,29 +188,7 @@ export class TaskRepository {
         orderBy: {
           [filter.sortBy]: filter.sortOrder,
         },
-        include: {
-          createdBy: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
-          },
-          assignee: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              avatarUrl: true,
-            },
-          },
-          _count: {
-            select: {
-              comments: true,
-            },
-          },
-        },
+        include: taskIncludes,
       }),
       prisma.task.count({ where }),
     ]);
@@ -205,29 +203,7 @@ export class TaskRepository {
         projectId,
       },
       data,
-      include: {
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        assignee: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatarUrl: true,
-          },
-        },
-        _count: {
-          select: {
-            comments: true,
-          },
-        },
-      },
+      include: taskIncludes,
     });
   }
 

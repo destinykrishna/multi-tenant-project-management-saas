@@ -34,6 +34,26 @@ export class AuthRepository {
     });
   }
 
+  async findUserById(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+    });
+  }
+
+  async updatePassword(id: string, passwordHash: string) {
+    return prisma.user.update({
+      where: { id },
+      data: { passwordHash },
+    });
+  }
+
+  async updateTotpSecret(id: string, totpSecret: string | null, totpEnabled: boolean) {
+    return prisma.user.update({
+      where: { id },
+      data: { totpSecret, totpEnabled },
+    });
+  }
+
   async findOrganizationBySlug(slug: string) {
     return prisma.organization.findUnique({
       where: { slug },

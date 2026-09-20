@@ -55,6 +55,7 @@ export type OrganizationMemberParam = z.infer<typeof organizationMemberParamSche
 
 export const addMemberSchema = z.object({
   email: z.email('Invalid email address').transform((val) => val.trim().toLowerCase()),
+  name: z.string().min(1).max(100).optional(),
   role: z
     .enum([OrganizationRole.ADMIN, OrganizationRole.MEMBER, OrganizationRole.VIEWER])
     .default(OrganizationRole.MEMBER),

@@ -47,6 +47,8 @@ export class GetRecentActivityTool implements AgentTool<GetRecentActivityInput, 
   readonly name = 'getRecentActivity';
   readonly description = 'Get recent audit trail and activity history within the organization.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = getRecentActivitySchema;
 
   readonly toolDefinition = {

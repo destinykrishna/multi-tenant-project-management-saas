@@ -23,6 +23,8 @@ export class GetMemberTool implements AgentTool<GetMemberInput, SanitizedMemberD
   readonly name = 'getMember';
   readonly description = 'Get detailed information about a specific organization member by member ID or user ID.';
   readonly requiredRoles = ALL_ROLES;
+  readonly riskLevel = 'READ' as const;
+  readonly requiresConfirmation = false;
   readonly schema = getMemberSchema;
 
   readonly toolDefinition = {

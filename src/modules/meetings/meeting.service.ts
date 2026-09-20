@@ -1,5 +1,6 @@
+import { prisma } from '../../config/database.js';
 import { logger } from '../../config/logger.js';
-import { NotFoundError } from '../../utils/errors.js';
+import { NotFoundError, BadRequestError } from '../../utils/errors.js';
 import {
   getPaginationOffset,
   buildPaginatedResponse,
@@ -20,6 +21,48 @@ export class MeetingService {
     private readonly actService: ActivityService = activityService,
   ) {}
 
+  private async validateAttendees(
+    organizationId: string,
+    attendeeUserIds?: string[],
+  ): Promise<{ userIds: string[]; emails: string[] }> {
+    if (!attendeeUserIds || attendeeUserIds.length === 0) {
+      return { userIds: [], emails: [] };
+    }
+
+    // Deduplicate attendee IDs
+    const uniqueIds = Array.from(new Set(attendeeUserIds.map((id) => id.trim()).filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return { userIds: [], emails: [] };
+    }
+
+    // Verify all attendees are active members of this specific organization
+    const activeMemberships = await prisma.organizationMember.findMany({
+      where: {
+        organizationId,
+        userId: { in: uniqueIds },
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (activeMemberships.length !== uniqueIds.length) {
+      throw new BadRequestError(
+        'One or more selected attendees are not active members of this organization',
+        'INVALID_ATTENDEE',
+      );
+    }
+
+    const emails = activeMemberships.map((m) => m.user.email);
+    return { userIds: uniqueIds, emails };
+  }
+
   async createMeeting(
     organizationId: string,
     userId: string,
@@ -33,6 +76,10 @@ export class MeetingService {
       }
     }
 
+    // 2. Validate attendee tenancy and permissions
+    const { userIds: validatedAttendeeIds, emails: attendeeEmails } =
+      await this.validateAttendees(organizationId, input.attendeeUserIds);
+
     const startTime = new Date(input.startTime);
     const endTime = new Date(input.endTime);
 
@@ -43,7 +90,7 @@ export class MeetingService {
     let googleMeetId: string | null = null;
     let isMeetEnabled = false;
 
-    // 2. Sync with Google Calendar / Meet OUTSIDE database transactions if requested
+    // 3. Sync with Google Calendar / Meet OUTSIDE database transactions if requested
     if (input.syncWithGoogle || input.createGoogleMeet) {
       try {
         const calEvent = await this.calService.createEvent(userId, {
@@ -52,6 +99,7 @@ export class MeetingService {
           startTime,
           endTime,
           location: input.location,
+          attendees: attendeeEmails.length > 0 ? attendeeEmails : undefined,
           createMeet: input.createGoogleMeet ?? false,
         });
 
@@ -70,7 +118,7 @@ export class MeetingService {
       }
     }
 
-    // 3. Persist Meeting in PostgreSQL (Source of Truth)
+    // 4. Persist Meeting in PostgreSQL (Source of Truth)
     const meeting = await this.repo.create({
       organizationId,
       projectId: input.projectId,
@@ -87,9 +135,10 @@ export class MeetingService {
       googleMeetLink,
       googleMeetId,
       isMeetEnabled,
+      attendeeUserIds: validatedAttendeeIds,
     });
 
-    // 4. Log audit activity asynchronously
+    // 5. Log audit activity asynchronously
     try {
       await this.actService.logActivity({
         organizationId,
@@ -104,6 +153,7 @@ export class MeetingService {
           googleSynced: Boolean(googleEventId),
           googleMeetLink,
           isMeetEnabled,
+          attendeeCount: validatedAttendeeIds.length,
         },
       });
 
@@ -127,6 +177,7 @@ export class MeetingService {
 
     return meeting;
   }
+
 
   async getMeetings(
     organizationId: string,
@@ -177,6 +228,15 @@ export class MeetingService {
     const startTime = input.startTime ? new Date(input.startTime) : existing.startTime;
     const endTime = input.endTime ? new Date(input.endTime) : existing.endTime;
 
+    let validatedAttendeeIds: string[] | undefined = undefined;
+    let attendeeEmails: string[] | undefined = undefined;
+
+    if (input.attendeeUserIds !== undefined) {
+      const res = await this.validateAttendees(organizationId, input.attendeeUserIds);
+      validatedAttendeeIds = res.userIds;
+      attendeeEmails = res.emails;
+    }
+
     let googleEventId = existing.googleEventId;
     let googleHtmlLink = existing.googleHtmlLink;
     let googleSyncedAt = existing.googleSyncedAt;
@@ -199,6 +259,7 @@ export class MeetingService {
               : (existing.location ?? undefined),
           startTime,
           endTime,
+          attendees: attendeeEmails,
           createMeet: input.createGoogleMeet ?? false,
         });
 
@@ -224,6 +285,7 @@ export class MeetingService {
           location: input.location ?? existing.location ?? undefined,
           startTime,
           endTime,
+          attendees: attendeeEmails && attendeeEmails.length > 0 ? attendeeEmails : undefined,
           createMeet: input.createGoogleMeet ?? false,
         });
 
@@ -253,6 +315,7 @@ export class MeetingService {
       googleMeetLink,
       googleMeetId,
       isMeetEnabled,
+      attendeeUserIds: validatedAttendeeIds,
     });
 
     try {
@@ -266,6 +329,7 @@ export class MeetingService {
           title: updated.title,
           updatedFields: Object.keys(input),
           googleMeetLink,
+          ...(validatedAttendeeIds ? { attendeeCount: validatedAttendeeIds.length } : {}),
         },
       });
     } catch (actErr) {
@@ -356,7 +420,7 @@ export class MeetingService {
     const existing = await this.repo.findById(organizationId, meetingId);
 
     if (!existing) {
-      throw new NotFoundError('Meeting not found', 'MEETING_NOT_FOUND');
+      return { deleted: true };
     }
 
     // Delete from Google Calendar OUTSIDE database transactions if synced
