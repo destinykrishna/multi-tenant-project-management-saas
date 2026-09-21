@@ -7,6 +7,7 @@ import {
   verifyRefreshToken,
   hashToken,
   getRefreshTokenExpiry,
+  type AccessTokenPayload,
 } from '../../utils/jwt.js';
 import { BadRequestError, ConflictError, UnauthorizedError } from '../../utils/errors.js';
 import { env } from '../../config/env.js';
@@ -124,11 +125,9 @@ export class AuthService {
 
     // 2.5 Two-Factor Authentication Challenge
     if (user.totpEnabled) {
-      const mfaToken = jwt.sign(
-        { userId: user.id, purpose: 'mfa_challenge' },
-        env.JWT_SECRET,
-        { expiresIn: '5m' },
-      );
+      const mfaToken = jwt.sign({ userId: user.id, purpose: 'mfa_challenge' }, env.JWT_SECRET, {
+        expiresIn: '5m',
+      });
       return {
         requiresMfa: true,
         mfaToken,
@@ -237,17 +236,58 @@ export class AuthService {
     };
   }
 
-  async logout(rawRefreshToken?: string, jti?: string): Promise<void> {
-    if (jti) {
-      tokenRevocationBloom.revoke(jti);
+  async logout(
+    input?: { rawRefreshToken?: string; accessToken?: string; jti?: string } | string,
+    legacyJti?: string,
+  ): Promise<void> {
+    let rawRefreshToken: string | undefined;
+    let accessToken: string | undefined;
+    let jti: string | undefined;
+
+    if (typeof input === 'string' || input === undefined) {
+      rawRefreshToken = input;
+      jti = legacyJti;
+    } else {
+      rawRefreshToken = input.rawRefreshToken;
+      accessToken = input.accessToken;
+      jti = input.jti;
     }
 
-    if (!rawRefreshToken) {
-      return;
+    // 1. If an access token is provided, extract JTI and revoke with bounded TTL
+    if (accessToken) {
+      try {
+        const payload = jwt.verify(accessToken, env.JWT_SECRET) as AccessTokenPayload;
+        if (payload.jti) {
+          let ttlSeconds = 900;
+          if (payload.exp) {
+            const remaining = payload.exp - Math.floor(Date.now() / 1000);
+            ttlSeconds = Math.max(1, remaining);
+          }
+          await tokenRevocationBloom.revoke(payload.jti, ttlSeconds);
+        }
+      } catch {
+        // If expired or invalid, attempt graceful decoding without verification
+        try {
+          const decoded = jwt.decode(accessToken) as AccessTokenPayload | null;
+          if (decoded?.jti && decoded.exp) {
+            const remaining = decoded.exp - Math.floor(Date.now() / 1000);
+            if (remaining > 0) {
+              await tokenRevocationBloom.revoke(decoded.jti, remaining);
+            }
+          }
+        } catch {
+          // Gracefully ignore malformed tokens
+        }
+      }
+    } else if (jti) {
+      await tokenRevocationBloom.revoke(jti);
     }
 
-    const tokenHash = hashToken(rawRefreshToken);
-    await this.repository.revokeRefreshSessionByHash(tokenHash);
+    // 2. Always revoke the refresh session in database if provided
+    if (rawRefreshToken) {
+      const tokenHash = hashToken(rawRefreshToken);
+      await this.repository.revokeRefreshSessionByHash(tokenHash);
+    }
   }
 
   async changePassword(
@@ -271,9 +311,9 @@ export class AuthService {
     // Invalidate all active refresh sessions for this user on password change
     await this.repository.revokeAllUserSessions(userId);
 
-    // Revoke current access token in Bloom filter
+    // Revoke current access token in Bloom filter & Redis denylist
     if (currentJti) {
-      tokenRevocationBloom.revoke(currentJti);
+      await tokenRevocationBloom.revoke(currentJti);
     }
 
     return { message: 'Password updated successfully' };
@@ -292,7 +332,10 @@ export class AuthService {
     return { secret, otpAuthUri };
   }
 
-  async verifyAndEnable2fa(userId: string, code: string): Promise<{ success: boolean; message: string }> {
+  async verifyAndEnable2fa(
+    userId: string,
+    code: string,
+  ): Promise<{ success: boolean; message: string }> {
     const user = await this.repository.findUserById(userId);
     if (!user || !user.totpSecret) {
       throw new BadRequestError('2FA setup has not been initiated', 'MFA_NOT_INITIATED');

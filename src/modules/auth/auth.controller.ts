@@ -10,6 +10,7 @@ import type {
   ChangePasswordInput,
   VerifyTotpInput,
   MfaLoginInput,
+  AcceptInvitationInput,
 } from './auth.schema.js';
 
 const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -137,9 +138,25 @@ export class AuthController {
 
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const rawRefreshToken = (req.cookies as Record<string, string> | undefined)?.['refreshToken'];
+      const rawRefreshToken =
+        (req.cookies as Record<string, string> | undefined)?.['refreshToken'] ||
+        (req.body as Record<string, string> | undefined)?.['refreshToken'];
 
-      await this.service.logout(rawRefreshToken, req.jti);
+      let accessToken: string | undefined;
+      const authHeader = req.headers.authorization;
+      if (authHeader) {
+        const trimmed = authHeader.trim();
+        const [scheme, token] = trimmed.split(/\s+/);
+        if (scheme === 'Bearer' && token) {
+          accessToken = token;
+        }
+      }
+
+      await this.service.logout({
+        rawRefreshToken,
+        accessToken,
+        jti: req.jti,
+      });
 
       res.clearCookie('refreshToken', {
         httpOnly: true,
@@ -253,14 +270,16 @@ export class AuthController {
 
   acceptInvitation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { token, name, password } = req.body;
+      const { token, name, password } = req.body as AcceptInvitationInput;
       const userAgent = req.headers['user-agent'];
       const ipAddress = req.ip;
+      const authenticatedUser = req.user ? { id: req.user.id, email: req.user.email } : undefined;
 
       const result = await organizationService.acceptInvitation(
         token,
         { name, password },
         { userAgent, ipAddress },
+        authenticatedUser,
       );
 
       res.cookie('refreshToken', result.tokens.refreshToken, {

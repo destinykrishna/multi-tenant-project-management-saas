@@ -60,15 +60,10 @@ router.get(
   validateRequest({
     params: activityOrgParamSchema,
   }),
-  authorizeOrgRole(
-    [
-      OrganizationRole.OWNER,
-      OrganizationRole.ADMIN,
-    ],
-    { orgIdParam: 'organizationId' },
-  ),
+  authorizeOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN], {
+    orgIdParam: 'organizationId',
+  }),
   activityController.verifyIntegrity,
 );
 
 export const activityRouter = router;
-

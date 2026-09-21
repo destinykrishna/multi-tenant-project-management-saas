@@ -14,6 +14,7 @@ import { organizationRouter } from './modules/organizations/organization.routes.
 import { projectRouter } from './modules/projects/project.routes.js';
 import { taskRouter } from './modules/tasks/task.routes.js';
 import { commentRouter } from './modules/comments/comment.routes.js';
+import { attachmentRouter } from './modules/attachments/attachment.routes.js';
 import { activityRouter } from './modules/activity/activity.routes.js';
 import { notificationRouter } from './modules/notifications/notification.routes.js';
 import { dashboardRouter } from './modules/dashboard/dashboard.routes.js';
@@ -23,13 +24,13 @@ import { googleRouter } from './modules/integrations/google/google.routes.js';
 import { ragRouter } from './modules/rag/rag.routes.js';
 import { aiRouter } from './modules/ai/ai.routes.js';
 import { generalRateLimiter } from './middlewares/rate-limit.middleware.js';
-import { cloudflareEdgeMiddleware } from './middlewares/cloudflare.middleware.js';
+import { cloudflareEdgeMiddleware, isTrustedProxy } from './middlewares/cloudflare.middleware.js';
 import { edgeRouter } from './modules/system/edge.routes.js';
 
 const app = express();
 
-// Enable trust proxy for reverse proxy / load balancer (e.g., Cloudflare Anycast + Nginx)
-app.set('trust proxy', env.TRUST_PROXY);
+// Enable secure trust proxy boundary for reverse proxy / load balancer (e.g., Cloudflare Anycast + Nginx)
+app.set('trust proxy', isTrustedProxy);
 
 // ─── Security Middleware ───────────────────────────────────────────────────────
 app.use(
@@ -124,6 +125,10 @@ app.use('/api/v1/organizations/:organizationId/projects/:projectId/tasks', taskR
 app.use(
   '/api/v1/organizations/:organizationId/projects/:projectId/tasks/:taskId/comments',
   commentRouter,
+);
+app.use(
+  '/api/v1/organizations/:organizationId/projects/:projectId/tasks/:taskId/attachments',
+  attachmentRouter,
 );
 app.use('/api/v1/organizations/:organizationId/activity', activityRouter);
 app.use('/api/v1/organizations/:organizationId/dashboard', dashboardRouter);

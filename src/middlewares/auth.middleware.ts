@@ -1,8 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { UnauthorizedError } from '../utils/errors.js';
+import { UnauthorizedError, ServiceUnavailableError, AppError } from '../utils/errors.js';
 import { verifyAccessToken } from '../utils/jwt.js';
 import { tokenRevocationBloom } from '../utils/bloom.js';
+import { logger } from '../config/logger.js';
 
 export interface AuthUser {
   id: string;
@@ -16,7 +17,11 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function authenticate(req: Request, _res: Response, next: NextFunction): void {
+export async function authenticate(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
@@ -40,8 +45,8 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
   try {
     const payload = verifyAccessToken(token);
 
-    // Fast Bloom Filter check (< 0.05ms)
-    if (payload.jti && tokenRevocationBloom.isRevoked(payload.jti)) {
+    // Distributed Redis revocation check (authoritative, survives restart, fails closed)
+    if (payload.jti && (await tokenRevocationBloom.isRevokedDistributed(payload.jti))) {
       next(new UnauthorizedError('Token has been revoked', 'TOKEN_REVOKED'));
       return;
     }
@@ -57,6 +62,55 @@ export function authenticate(req: Request, _res: Response, next: NextFunction): 
       next(new UnauthorizedError('Access token has expired', 'TOKEN_EXPIRED'));
       return;
     }
-    next(new UnauthorizedError('Invalid access token', 'INVALID_ACCESS_TOKEN'));
+    if (error instanceof jwt.JsonWebTokenError) {
+      next(new UnauthorizedError('Invalid access token', 'INVALID_ACCESS_TOKEN'));
+      return;
+    }
+    if (error instanceof AppError) {
+      next(error);
+      return;
+    }
+    logger.error({ error }, 'Authentication failed: token revocation service unavailable');
+    next(
+      new ServiceUnavailableError(
+        'Authentication service temporarily unavailable',
+        'AUTH_SERVICE_UNAVAILABLE',
+      ),
+    );
+  }
+}
+
+export async function optionalAuthenticate(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    next();
+    return;
+  }
+
+  const trimmed = authHeader.trim();
+  const [scheme, token] = trimmed.split(/\s+/);
+  if (scheme !== 'Bearer' || !token) {
+    next();
+    return;
+  }
+
+  try {
+    const payload = verifyAccessToken(token);
+    if (payload.jti && (await tokenRevocationBloom.isRevokedDistributed(payload.jti))) {
+      next();
+      return;
+    }
+    req.user = {
+      id: payload.userId,
+      email: payload.email,
+    };
+    req.jti = payload.jti;
+    next();
+  } catch {
+    next();
   }
 }

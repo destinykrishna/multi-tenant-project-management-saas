@@ -110,7 +110,7 @@ export class TeamService {
       throw new NotFoundError('Team not found in this organization', 'TEAM_NOT_FOUND');
     }
 
-    let name = input.name?.trim();
+    const name = input.name?.trim();
     if (name && name !== team.name) {
       const existing = await this.repository.findByName(organizationId, name);
       if (existing) {
@@ -128,7 +128,8 @@ export class TeamService {
 
     const updated = await this.repository.updateTeam(organizationId, teamId, {
       name,
-      description: input.description !== undefined ? input.description?.trim() ?? null : undefined,
+      description:
+        input.description !== undefined ? (input.description?.trim() ?? null) : undefined,
       memberUserIds: validatedMemberIds,
     });
 

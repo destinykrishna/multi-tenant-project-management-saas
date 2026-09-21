@@ -44,7 +44,10 @@ export class MockAiLlmProvider implements ILlmProvider {
     // Agent tool calling simulation if tools provided
     if (options?.tools && options.tools.length > 0) {
       // 1. Multi-step flow: Find member -> search tasks -> summarize
-      if (userMessage.toLowerCase().includes('rahul') || userMessage.toLowerCase().includes('overdue')) {
+      if (
+        userMessage.toLowerCase().includes('rahul') ||
+        userMessage.toLowerCase().includes('overdue')
+      ) {
         const memberToolMsg = toolMessages.find((m) => m.name === 'searchMembers');
         const tasksToolMsg = toolMessages.find((m) => m.name === 'searchTasks');
 
@@ -66,7 +69,9 @@ export class MockAiLlmProvider implements ILlmProvider {
           // Parse member ID from tool result if available
           let memberId = '00000000-0000-0000-0000-000000000000';
           try {
-            const parsed = JSON.parse(memberToolMsg.content) as { data?: Array<{ userId?: string }> };
+            const parsed = JSON.parse(memberToolMsg.content) as {
+              data?: Array<{ userId?: string }>;
+            };
             if (parsed.data && parsed.data[0]?.userId) {
               memberId = parsed.data[0].userId;
             }
@@ -92,7 +97,8 @@ export class MockAiLlmProvider implements ILlmProvider {
         }
 
         return {
-          content: 'Rahul was found as an active member. He has 1 high-priority overdue task: "Fix overdue database connection pool saturation".',
+          content:
+            'Rahul was found as an active member. He has 1 high-priority overdue task: "Fix overdue database connection pool saturation".',
           finishReason: 'stop',
         };
       }
@@ -136,7 +142,11 @@ export class MockAiLlmProvider implements ILlmProvider {
         }
 
         // Step 2: Send email with meeting details (if email requested and meeting created)
-        if (!emailToolMsg && (userMessage.toLowerCase().includes('email') || userMessage.toLowerCase().includes('send'))) {
+        if (
+          !emailToolMsg &&
+          (userMessage.toLowerCase().includes('email') ||
+            userMessage.toLowerCase().includes('send'))
+        ) {
           let meetLink = 'https://meet.google.com/test-link';
           try {
             const parsed = JSON.parse(meetingToolMsg.content) as {
@@ -190,7 +200,8 @@ export class MockAiLlmProvider implements ILlmProvider {
         }
 
         return {
-          content: 'I retrieved the organization projects: Alpha AI Platform (Key: AIP, Status: ACTIVE).',
+          content:
+            'I retrieved the organization projects: Alpha AI Platform (Key: AIP, Status: ACTIVE).',
           finishReason: 'stop',
         };
       }

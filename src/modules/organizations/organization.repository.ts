@@ -3,6 +3,10 @@ import type { Prisma } from '../../generated/prisma/client.js';
 import type { OrganizationRole } from '../../constants/roles.js';
 import { BadRequestError, ConflictError, NotFoundError } from '../../utils/errors.js';
 
+function isPrismaUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'P2002';
+}
+
 export interface CreateOrgData {
   name: string;
   slug: string;
@@ -210,8 +214,8 @@ export class OrganizationRepository {
             role: 'OWNER',
           },
         });
-      } catch (err: any) {
-        if (err.code === 'P2002') {
+      } catch (err: unknown) {
+        if (isPrismaUniqueViolation(err)) {
           throw new ConflictError(
             'This user already belongs to an organization.',
             'USER_ALREADY_IN_ORGANIZATION',
@@ -325,6 +329,12 @@ export class OrganizationRepository {
     });
   }
 
+  async findInvitationById(id: string) {
+    return prisma.organizationInvitation.findUnique({
+      where: { id },
+    });
+  }
+
   async listPendingInvitations(organizationId: string) {
     return prisma.organizationInvitation.findMany({
       where: {
@@ -431,8 +441,8 @@ export class OrganizationRepository {
               isEmailVerified: true,
             },
           });
-        } catch (err: any) {
-          if (err.code === 'P2002') {
+        } catch (err: unknown) {
+          if (isPrismaUniqueViolation(err)) {
             throw new ConflictError(
               'This user already belongs to an organization.',
               'USER_ALREADY_IN_ORGANIZATION',
@@ -464,9 +474,9 @@ export class OrganizationRepository {
             },
           },
         });
-      } catch (err: any) {
+      } catch (err: unknown) {
         // Catch Prisma unique constraint violation (P2002) in concurrent acceptance race
-        if (err.code === 'P2002') {
+        if (isPrismaUniqueViolation(err)) {
           throw new ConflictError(
             'This user already belongs to an organization.',
             'USER_ALREADY_IN_ORGANIZATION',

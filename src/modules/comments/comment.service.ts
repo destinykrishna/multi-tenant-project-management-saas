@@ -13,6 +13,7 @@ import {
 } from '../notifications/notification.service.js';
 import { EntityType, ActivityAction } from '../../constants/activity.js';
 import { NotificationType } from '../../constants/notification.js';
+import { emitToProject, emitToTask } from '../../config/socket.js';
 import type {
   CreateCommentInput,
   UpdateCommentInput,
@@ -67,7 +68,7 @@ export class CommentService {
       });
     }
 
-    return {
+    const commentResponse: CommentResponse = {
       id: comment.id,
       taskId: comment.taskId,
       userId: comment.userId,
@@ -76,6 +77,11 @@ export class CommentService {
       updatedAt: comment.updatedAt,
       user: comment.user,
     };
+
+    emitToTask(organizationId, taskId, 'comment.created', commentResponse);
+    emitToProject(organizationId, projectId, 'comment.created', { ...commentResponse, projectId });
+
+    return commentResponse;
   }
 
   async getComments(
@@ -138,7 +144,7 @@ export class CommentService {
       metadata: { taskId, projectId },
     });
 
-    return {
+    const commentResponse: CommentResponse = {
       id: updated.id,
       taskId: updated.taskId,
       userId: updated.userId,
@@ -147,6 +153,11 @@ export class CommentService {
       updatedAt: updated.updatedAt,
       user: updated.user,
     };
+
+    emitToTask(organizationId, taskId, 'comment.updated', commentResponse);
+    emitToProject(organizationId, projectId, 'comment.updated', { ...commentResponse, projectId });
+
+    return commentResponse;
   }
 
   async deleteComment(
@@ -184,6 +195,10 @@ export class CommentService {
       action: ActivityAction.DELETED,
       metadata: { taskId, projectId, deletedByModerator: !isAuthor },
     });
+
+    const deletePayload = { id: commentId, commentId, taskId, projectId };
+    emitToTask(organizationId, taskId, 'comment.deleted', deletePayload);
+    emitToProject(organizationId, projectId, 'comment.deleted', deletePayload);
   }
 }
 

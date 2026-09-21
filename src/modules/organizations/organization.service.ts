@@ -1,5 +1,12 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { BadRequestError, ConflictError, NotFoundError } from '../../utils/errors.js';
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+  ForbiddenError,
+  UnauthorizedError,
+} from '../../utils/errors.js';
+import { OrganizationRole } from '../../constants/roles.js';
 import { hashPassword } from '../../utils/password.js';
 import {
   hashToken,
@@ -211,12 +218,9 @@ export class OrganizationService {
   // ─── Member Management ────────────────────────────────────────────────────────
 
   async getMembers(organizationId: string): Promise<OrganizationMemberResponse[]> {
-    const [members, pendingInvitations] = await Promise.all([
-      this.repository.findMembers(organizationId),
-      this.repository.listPendingInvitations(organizationId),
-    ]);
+    const members = await this.repository.findMembers(organizationId);
 
-    const activeMembers: OrganizationMemberResponse[] = members.map((m) => ({
+    return members.map((m) => ({
       id: m.id,
       organizationId: m.organizationId,
       userId: m.userId,
@@ -233,26 +237,6 @@ export class OrganizationService {
         createdAt: m.user.createdAt,
       },
     }));
-
-    const invitedMembers: OrganizationMemberResponse[] = pendingInvitations.map((inv) => ({
-      id: inv.id,
-      organizationId: inv.organizationId,
-      userId: inv.id,
-      role: inv.role,
-      createdAt: inv.createdAt,
-      updatedAt: inv.updatedAt,
-      isPending: true,
-      user: {
-        id: inv.id,
-        name: inv.email.split('@')[0] ?? 'Invited User',
-        email: inv.email,
-        avatarUrl: null,
-        isEmailVerified: false,
-        createdAt: inv.createdAt,
-      },
-    }));
-
-    return [...activeMembers, ...invitedMembers];
   }
 
   async addMember(
@@ -272,7 +256,6 @@ export class OrganizationService {
     // 2. Find user by email
     const user = await this.repository.findUserByEmail(normalizedEmail);
 
-    // 3. Case A: User already exists on platform -> Add direct membership if no org
     if (user) {
       const existingMembership = await this.repository.findUserMembership(user.id);
       if (existingMembership) {
@@ -290,89 +273,14 @@ export class OrganizationService {
           );
         }
       }
-
-      let member;
-      try {
-        member = await this.repository.addMember(organizationId, user.id, input.role);
-      } catch (err: any) {
-        if (err.code === 'P2002') {
-          throw new ConflictError(
-            'This user already belongs to an organization.',
-            'USER_ALREADY_IN_ORGANIZATION',
-          );
-        }
-        throw err;
-      }
-
-      // Invalidate any other pending invitations for this user
-      await this.repository.invalidatePendingInvitationsByEmail(normalizedEmail);
-
-      await this.cache.del([
-        CACHE_KEYS.userOrganizations(user.id),
-        CACHE_KEYS.organization(organizationId),
-      ]);
-
-      await this.activity.logActivity({
-        organizationId,
-        userId: user.id,
-        entityType: EntityType.USER,
-        entityId: user.id,
-        action: ActivityAction.MEMBER_ADDED,
-        metadata: { role: input.role, email: normalizedEmail },
-      });
-
-      await this.notification.queueNotification({
-        userId: user.id,
-        organizationId,
-        type: NotificationType.MEMBER_ADDED,
-        title: 'Added to Organization',
-        message: `You have been added to ${orgName} with role ${input.role}`,
-        metadata: { organizationId, role: input.role },
-      });
-
-      const appUrl = env.CORS_ORIGIN || 'http://localhost:3000';
-      try {
-        await addEmailJob({
-          to: input.email,
-          subject: `You've been added to ${orgName}`,
-          html: `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;">
-              <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">Workspace Invitation</h2>
-              <p style="color: #334155; font-size: 14px; line-height: 1.6;">You have been added to <strong>${orgName}</strong> with the role of <strong style="color: #2563eb;">${input.role}</strong>.</p>
-              <p style="color: #334155; font-size: 14px; line-height: 1.6;">You can access this workspace immediately using your existing account credentials.</p>
-              <p style="margin: 24px 0;">
-                <a href="${appUrl}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 10px 22px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Open Workspace</a>
-              </p>
-            </div>
-          `,
-          text: `You have been added to ${orgName} as a ${input.role}.\n\nAccess your workspace: ${appUrl}`,
-        });
-      } catch (emailErr) {
-        logger.warn({ emailErr, email: input.email }, 'Failed to send workspace invitation email');
-      }
-
-      return {
-        id: member.id,
-        organizationId: member.organizationId,
-        userId: member.userId,
-        role: member.role,
-        createdAt: member.createdAt,
-        updatedAt: member.updatedAt,
-        isPending: false,
-        user: {
-          id: member.user.id,
-          name: member.user.name,
-          email: member.user.email,
-          avatarUrl: member.user.avatarUrl,
-          isEmailVerified: member.user.isEmailVerified,
-          createdAt: member.user.createdAt,
-        },
-      };
     }
 
-    // 4. Case B: User does NOT yet exist on platform -> Create/Refresh Invitation
+    // Always create or refresh a PENDING invitation instead of forced membership
     const effectiveInvitedById = invitedById || org.ownerId;
-    const existingInvitation = await this.repository.findPendingInvitation(organizationId, normalizedEmail);
+    const existingInvitation = await this.repository.findPendingInvitation(
+      organizationId,
+      normalizedEmail,
+    );
 
     const rawToken = randomBytes(32).toString('hex');
     const tokenHash = hashToken(rawToken);
@@ -408,14 +316,14 @@ export class OrganizationService {
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;">
             <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">You're Invited!</h2>
             <p style="color: #334155; font-size: 14px; line-height: 1.6;">You have been invited to collaborate in <strong>${orgName}</strong> with the role of <strong style="color: #2563eb;">${input.role}</strong>.</p>
-            <p style="color: #334155; font-size: 14px; line-height: 1.6;">Click the button below to accept your invitation and set up your account. This link will expire in 7 days.</p>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">Click the button below to accept your invitation. This link will expire in 7 days.</p>
             <p style="margin: 24px 0;">
-              <a href="${inviteLink}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Accept Invitation & Setup Account</a>
+              <a href="${inviteLink}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Accept Invitation</a>
             </p>
             <p style="color: #64748b; font-size: 12px; line-height: 1.5;">Or copy and paste this URL into your browser:<br/><a href="${inviteLink}" style="color: #2563eb; word-break: break-all;">${inviteLink}</a></p>
           </div>
         `,
-        text: `You have been invited to join ${orgName} as a ${input.role}.\n\nAccept your invitation and set up your account:\n${inviteLink}\n\nThis link expires in 7 days.`,
+        text: `You have been invited to join ${orgName} as a ${input.role}.\n\nAccept your invitation:\n${inviteLink}\n\nThis link expires in 7 days.`,
       });
     } catch (emailErr) {
       logger.warn({ emailErr, email: normalizedEmail }, 'Failed to queue invitation email');
@@ -424,18 +332,20 @@ export class OrganizationService {
     return {
       id: invitationRecord.id,
       organizationId,
-      userId: invitationRecord.id,
+      userId: user ? user.id : invitationRecord.id,
       role: input.role,
       createdAt: invitationRecord.createdAt,
       updatedAt: invitationRecord.updatedAt,
       isPending: true,
       user: {
-        id: invitationRecord.id,
-        name: input.name?.trim() || (normalizedEmail.split('@')[0] ?? 'Invited User'),
+        id: user ? user.id : invitationRecord.id,
+        name: user
+          ? user.name
+          : input.name?.trim() || (normalizedEmail.split('@')[0] ?? 'Invited User'),
         email: normalizedEmail,
-        avatarUrl: null,
-        isEmailVerified: false,
-        createdAt: invitationRecord.createdAt,
+        avatarUrl: user ? user.avatarUrl : null,
+        isEmailVerified: user ? user.isEmailVerified : false,
+        createdAt: user ? user.createdAt : invitationRecord.createdAt,
       },
     };
   }
@@ -444,6 +354,7 @@ export class OrganizationService {
     organizationId: string,
     targetUserId: string,
     input: UpdateMemberRoleInput,
+    callerRole?: string,
   ): Promise<OrganizationMemberResponse> {
     const member = await this.repository.findMember(organizationId, targetUserId);
     if (!member) {
@@ -454,6 +365,20 @@ export class OrganizationService {
       throw new BadRequestError(
         'Organization owner role cannot be modified',
         'CANNOT_MODIFY_OWNER_ROLE',
+      );
+    }
+
+    if (member.role === OrganizationRole.ADMIN && callerRole !== OrganizationRole.OWNER) {
+      throw new ForbiddenError(
+        'Only organization owners can modify admin members',
+        'INSUFFICIENT_PERMISSIONS',
+      );
+    }
+
+    if (input.role === OrganizationRole.ADMIN && callerRole !== OrganizationRole.OWNER) {
+      throw new ForbiddenError(
+        'Only organization owners can promote members to admin',
+        'INSUFFICIENT_PERMISSIONS',
       );
     }
 
@@ -504,7 +429,11 @@ export class OrganizationService {
     };
   }
 
-  async removeMember(organizationId: string, targetUserId: string): Promise<void> {
+  async removeMember(
+    organizationId: string,
+    targetUserId: string,
+    callerRole?: string,
+  ): Promise<void> {
     const member = await this.repository.findMember(organizationId, targetUserId);
     if (!member) {
       throw new NotFoundError('Member not found in this organization', 'MEMBER_NOT_FOUND');
@@ -514,6 +443,13 @@ export class OrganizationService {
       throw new BadRequestError(
         'Organization owner cannot be removed from the organization',
         'CANNOT_REMOVE_OWNER',
+      );
+    }
+
+    if (member.role === OrganizationRole.ADMIN && callerRole !== OrganizationRole.OWNER) {
+      throw new ForbiddenError(
+        'Only organization owners can remove admin members',
+        'INSUFFICIENT_PERMISSIONS',
       );
     }
 
@@ -611,10 +547,107 @@ export class OrganizationService {
     };
   }
 
+  async listInvitations(organizationId: string) {
+    const invitations = await this.repository.listPendingInvitations(organizationId);
+    return invitations.map((inv) => ({
+      id: inv.id,
+      organizationId: inv.organizationId,
+      email: inv.email,
+      role: inv.role,
+      status: inv.status,
+      expiresAt: inv.expiresAt,
+      createdAt: inv.createdAt,
+      updatedAt: inv.updatedAt,
+    }));
+  }
+
+  async resendInvitation(organizationId: string, invitationId: string) {
+    const invitation = await this.repository.findInvitationById(invitationId);
+    if (!invitation || invitation.organizationId !== organizationId) {
+      throw new NotFoundError('Invitation not found', 'INVITATION_NOT_FOUND');
+    }
+
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestError(
+        `Cannot resend an invitation that is ${invitation.status.toLowerCase()}`,
+        'INVITATION_NOT_PENDING',
+      );
+    }
+
+    const org = await this.repository.findById(organizationId);
+    const orgName = org?.name || 'Workspace';
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = hashToken(rawToken);
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    await this.repository.updateInvitation(invitation.id, {
+      tokenHash,
+      expiresAt,
+    });
+
+    const appUrl = env.CORS_ORIGIN || 'http://localhost:3000';
+    const inviteLink = `${appUrl}/invite?token=${rawToken}`;
+
+    try {
+      await addEmailJob({
+        to: invitation.email,
+        subject: `You've been invited to join ${orgName}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px; background: #ffffff;">
+            <h2 style="color: #0f172a; margin-top: 0; font-size: 20px;">You're Invited!</h2>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">You have been invited to collaborate in <strong>${orgName}</strong> with the role of <strong style="color: #2563eb;">${invitation.role}</strong>.</p>
+            <p style="color: #334155; font-size: 14px; line-height: 1.6;">Click the button below to accept your invitation and set up your account. This link will expire in 7 days.</p>
+            <p style="margin: 24px 0;">
+              <a href="${inviteLink}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">Accept Invitation & Setup Account</a>
+            </p>
+            <p style="color: #64748b; font-size: 12px; line-height: 1.5;">Or copy and paste this URL into your browser:<br/><a href="${inviteLink}" style="color: #2563eb; word-break: break-all;">${inviteLink}</a></p>
+          </div>
+        `,
+        text: `You have been invited to join ${orgName} as a ${invitation.role}.\n\nAccept your invitation and set up your account:\n${inviteLink}\n\nThis link expires in 7 days.`,
+      });
+    } catch (emailErr) {
+      logger.warn({ emailErr, email: invitation.email }, 'Failed to queue resend invitation email');
+    }
+
+    return {
+      message: 'Invitation resent successfully',
+      id: invitation.id,
+      invitationId: invitation.id,
+      status: 'PENDING',
+    };
+  }
+
+  async revokeInvitation(organizationId: string, invitationId: string) {
+    const invitation = await this.repository.findInvitationById(invitationId);
+    if (!invitation || invitation.organizationId !== organizationId) {
+      throw new NotFoundError('Invitation not found', 'INVITATION_NOT_FOUND');
+    }
+
+    if (invitation.status !== 'PENDING') {
+      throw new BadRequestError(
+        `Cannot revoke an invitation that is already ${invitation.status.toLowerCase()}`,
+        'INVITATION_NOT_PENDING',
+      );
+    }
+
+    await this.repository.updateInvitation(invitation.id, {
+      status: 'REVOKED',
+    });
+
+    return {
+      message: 'Invitation revoked successfully',
+      id: invitation.id,
+      invitationId: invitation.id,
+      status: 'REVOKED',
+    };
+  }
+
   async acceptInvitation(
     rawToken: string,
     input: { name?: string; password?: string },
     context: { userAgent?: string; ipAddress?: string } = {},
+    authenticatedUser?: { id: string; email: string },
   ) {
     // 1. Validate token format and fetch invitation
     if (!rawToken || typeof rawToken !== 'string') {
@@ -659,7 +692,31 @@ export class OrganizationService {
     const existingUser = await this.repository.findUserByEmail(normalizedEmail);
     let passwordHash: string | undefined;
 
-    if (!existingUser) {
+    if (existingUser) {
+      if (!authenticatedUser) {
+        throw new UnauthorizedError(
+          'Authentication required to accept invitation for an existing account',
+          'AUTHENTICATION_REQUIRED',
+        );
+      }
+
+      if (
+        authenticatedUser.id !== existingUser.id ||
+        authenticatedUser.email.toLowerCase().trim() !== normalizedEmail
+      ) {
+        throw new ForbiddenError(
+          'Authenticated user does not match the invitation recipient',
+          'INVITATION_RECIPIENT_MISMATCH',
+        );
+      }
+    } else {
+      if (authenticatedUser && authenticatedUser.email.toLowerCase().trim() !== normalizedEmail) {
+        throw new ForbiddenError(
+          'Authenticated user does not match the invitation recipient',
+          'INVITATION_RECIPIENT_MISMATCH',
+        );
+      }
+
       if (!input.password || input.password.length < 8) {
         throw new BadRequestError(
           'Password must be at least 8 characters long',

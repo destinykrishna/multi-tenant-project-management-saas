@@ -6,6 +6,8 @@ export interface AccessTokenPayload {
   userId: string;
   email: string;
   jti?: string;
+  exp?: number;
+  iat?: number;
 }
 
 export interface RefreshTokenPayload {

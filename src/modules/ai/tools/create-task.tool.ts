@@ -55,8 +55,13 @@ export interface SanitizedTaskMutationResult {
 
 export class CreateTaskTool implements AgentTool<CreateTaskToolInput, SanitizedTaskMutationResult> {
   readonly name = 'createTask';
-  readonly description = 'Create a new task inside a specific project within the current organization.';
-  readonly requiredRoles = [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER];
+  readonly description =
+    'Create a new task inside a specific project within the current organization.';
+  readonly requiredRoles = [
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  ];
   readonly riskLevel = 'WRITE' as const;
   readonly isMutation = true;
   readonly requiresConfirmation = false;

@@ -22,9 +22,13 @@ export interface SanitizedProjectSummary {
   tasksCount?: number;
 }
 
-export class SearchProjectsTool implements AgentTool<SearchProjectsInput, SanitizedProjectSummary[]> {
+export class SearchProjectsTool implements AgentTool<
+  SearchProjectsInput,
+  SanitizedProjectSummary[]
+> {
   readonly name = 'searchProjects';
-  readonly description = 'Search and list projects within the current organization by status or keyword.';
+  readonly description =
+    'Search and list projects within the current organization by status or keyword.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -37,7 +41,11 @@ export class SearchProjectsTool implements AgentTool<SearchProjectsInput, Saniti
       type: 'object' as const,
       properties: {
         search: { type: 'string', description: 'Search term for project name or key' },
-        status: { type: 'string', enum: ['ACTIVE', 'ARCHIVED'], description: 'Filter by project status' },
+        status: {
+          type: 'string',
+          enum: ['ACTIVE', 'ARCHIVED'],
+          description: 'Filter by project status',
+        },
         limit: { type: 'number', description: 'Maximum number of projects to return (max 20)' },
       },
     },

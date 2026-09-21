@@ -19,9 +19,10 @@ export class SmtpEmailProvider implements IEmailProvider {
       });
     }
 
-    const isGmailUser = env.SMTP_USER?.trim().endsWith('@gmail.com');
+    const isGmailUser = env.SMTP_USER.trim().endsWith('@gmail.com');
     const host =
-      isGmailUser && (env.SMTP_HOST === 'smtp.ethereal.email' || env.SMTP_HOST === 'localhost' || !env.SMTP_HOST)
+      isGmailUser &&
+      (env.SMTP_HOST === 'smtp.ethereal.email' || env.SMTP_HOST === 'localhost' || !env.SMTP_HOST)
         ? 'smtp.gmail.com'
         : env.SMTP_HOST;
     const cleanPass = env.SMTP_PASS ? env.SMTP_PASS.replace(/\s+/g, '') : '';
@@ -43,8 +44,19 @@ export class SmtpEmailProvider implements IEmailProvider {
   }
 
   async send(message: EmailMessage): Promise<EmailSendResult> {
+    const isGmailUser = env.SMTP_USER.trim().endsWith('@gmail.com');
+    let fromAddress = message.from ?? env.EMAIL_FROM;
+    if (
+      !message.from &&
+      isGmailUser &&
+      env.SMTP_USER &&
+      fromAddress.includes('@multitenantbackend.com')
+    ) {
+      fromAddress = `"Multi-Tenant Workspace" <${env.SMTP_USER.trim()}>`;
+    }
+
     const mailOptions: SendMailOptions = {
-      from: message.from ?? env.EMAIL_FROM,
+      from: fromAddress,
       to: message.to,
       subject: message.subject,
       text: message.text,

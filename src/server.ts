@@ -6,6 +6,7 @@ import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
 import { startAllWorkers, type RunningWorkers } from './jobs/workers/index.js';
+import { initSocketServer, closeSocketServer } from './config/socket.js';
 
 let server: Server | undefined;
 let workers: RunningWorkers | undefined;
@@ -27,6 +28,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
       await workers.stop();
       logger.info('Background workers stopped');
     }
+
+    await closeSocketServer();
+    logger.info('Socket.IO server closed');
 
     if (server) {
       const activeServer = server;
@@ -66,6 +70,8 @@ async function bootstrap(): Promise<void> {
         `Server started on port ${env.PORT}`,
       );
     });
+
+    initSocketServer(server);
   } catch (error) {
     logger.fatal({ error }, 'Failed to start application server');
     process.exit(1);

@@ -1,9 +1,24 @@
 -- ====================================================================
--- ZERO-TRUST ARCHITECTURE: POSTGRESQL ROW-LEVEL SECURITY (RLS) POLICIES
+-- POSTGRESQL ROW-LEVEL SECURITY (RLS) POLICIES (DEFENSE-IN-DEPTH)
 -- ====================================================================
--- Enforces tenant data isolation directly at the PostgreSQL database engine.
--- Even if an application query omits 'WHERE organization_id = ...',
--- PostgreSQL will refuse to return or mutate records belonging to other tenants.
+-- IMPORTANT ARCHITECTURAL & SECURITY NOTES:
+-- 1. Permissive Unset Clause: The policies below include:
+--    `NULLIF(current_setting('app.current_org_id', true), '') IS NULL OR ...`
+--    When `app.current_org_id` is unset or empty (the default for un-scoped queries),
+--    the policy permits access. This prevents breaking migrations, seeds, background
+--    workers, and un-scoped administrative queries.
+-- 2. Superuser Role Exemption: The default database connection role (`postgres`)
+--    possesses `SUPERUSER` and `BYPASSRLS` privileges in PostgreSQL. In PostgreSQL,
+--    superusers bypass RLS unconditionally even when `FORCE ROW LEVEL SECURITY` is set.
+-- 3. Tenant Isolation Boundary: Active tenant isolation is guaranteed at the
+--    application layer through Express RBAC middleware (`authorizeOrgRole`) and
+--    explicit `organizationId` scoping on all Prisma queries.
+-- 4. To establish RLS as an engine-level security boundary in the future:
+--    - A non-superuser application database role (without `BYPASSRLS`) must be provisioned.
+--    - Per-query or per-transaction tenant context (`SET LOCAL app.current_org_id`) must
+--      be injected systematically.
+--    - RLS policies must deny access when `app.current_org_id` is unset (`IS NULL`),
+--      with a distinct privileged bypass role strictly for migrations and background jobs.
 -- ====================================================================
 
 -- 1. Enable RLS on Tenant-Partitioned Tables

@@ -2,6 +2,8 @@ import request from 'supertest';
 import { app } from '../../src/app.js';
 import { prisma, disconnectDatabase } from '../../src/config/database.js';
 import { ragService } from '../../src/modules/rag/rag.service.js';
+import { ragRepository } from '../../src/modules/rag/rag.repository.js';
+import type { CreateKnowledgeChunkInput } from '../../src/modules/rag/rag.types.js';
 
 describe('RAG Answer-Generation Layer (POST /rag/query)', () => {
   let user1Token: string;
@@ -23,6 +25,85 @@ describe('RAG Answer-Generation Layer (POST /rag/query)', () => {
   const testEmail2 = `rag.query.user2.${Date.now()}@example.com`;
 
   beforeAll(async () => {
+    // Detect whether PostgreSQL has native pgvector installed
+    let isPgVectorAvailable = false;
+    try {
+      const check = await prisma.$queryRaw<any[]>`SELECT 1 FROM pg_extension WHERE extname = 'vector'`;
+      isPgVectorAvailable = check.length > 0;
+    } catch {
+      isPgVectorAvailable = false;
+    }
+
+    if (!isPgVectorAvailable) {
+      const mockChunks: Array<CreateKnowledgeChunkInput & { id: string }> = [];
+      const targetRepo = (ragService as any).repo ?? ragRepository;
+
+      targetRepo.upsertChunk = async (data: any) => {
+        const id = `mock-${data.organizationId}-${data.sourceType}-${data.sourceId}-${data.chunkIndex}`;
+        const existingIdx = mockChunks.findIndex(
+          (c) =>
+            c.organizationId === data.organizationId &&
+            c.sourceType === data.sourceType &&
+            c.sourceId === data.sourceId &&
+            c.chunkIndex === data.chunkIndex,
+        );
+        if (existingIdx >= 0) {
+          mockChunks[existingIdx] = { ...data, id };
+        } else {
+          mockChunks.push({ ...data, id });
+        }
+        return { ...data, id, createdAt: new Date(), updatedAt: new Date() } as any;
+      };
+
+      targetRepo.searchVectors = async (options: any) => {
+        const candidates = mockChunks.filter((c) => {
+          if (c.organizationId !== options.organizationId) return false;
+          if (options.sourceTypes && options.sourceTypes.length > 0) {
+            if (!options.sourceTypes.includes(c.sourceType)) return false;
+          }
+          if (options.projectId) {
+            const meta = c.metadata as Record<string, unknown> | undefined;
+            const pid =
+              c.sourceType === 'PROJECT'
+                ? c.sourceId
+                : (meta?.['projectId'] as string | undefined);
+            if (pid !== options.projectId) return false;
+          }
+          return true;
+        });
+
+        const scored = candidates
+          .map((c) => {
+            let dot = 0,
+              normA = 0,
+              normB = 0;
+            for (let i = 0; i < options.queryEmbedding.length; i++) {
+              const a = options.queryEmbedding[i] ?? 0;
+              const b = c.embedding[i] ?? 0;
+              dot += a * b;
+              normA += a * a;
+              normB += b * b;
+            }
+            const sim = normA && normB ? dot / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+            return {
+              id: c.id,
+              organizationId: c.organizationId,
+              sourceType: c.sourceType,
+              sourceId: c.sourceId,
+              chunkIndex: c.chunkIndex,
+              totalChunks: c.totalChunks,
+              title: c.title ?? null,
+              content: c.content,
+              metadata: (c.metadata ?? null) as any,
+              similarityScore: Math.round(sim * 10000) / 10000,
+            };
+          })
+          .filter((c) => c.similarityScore >= options.minSimilarity);
+
+        scored.sort((a, b) => b.similarityScore - a.similarityScore);
+        return scored.slice(0, options.topK);
+      };
+    }
     // 1. Register User 1 + Org 1 (Organization A)
     const res1 = await request(app)
       .post('/api/v1/auth/register')

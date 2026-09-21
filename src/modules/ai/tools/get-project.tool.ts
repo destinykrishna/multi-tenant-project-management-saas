@@ -26,7 +26,8 @@ export interface SanitizedProjectDetails {
 
 export class GetProjectTool implements AgentTool<GetProjectInput, SanitizedProjectDetails> {
   readonly name = 'getProject';
-  readonly description = 'Get detailed information about a specific project by its ID within the organization.';
+  readonly description =
+    'Get detailed information about a specific project by its ID within the organization.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -34,7 +35,8 @@ export class GetProjectTool implements AgentTool<GetProjectInput, SanitizedProje
 
   readonly toolDefinition = {
     name: 'getProject',
-    description: 'Get detailed information about a specific project by its ID within the organization.',
+    description:
+      'Get detailed information about a specific project by its ID within the organization.',
     parameters: {
       type: 'object' as const,
       properties: {

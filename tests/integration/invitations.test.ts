@@ -134,7 +134,7 @@ describe('Organization Member Invitations Integration Tests', () => {
   });
 
   describe('1. Member Invitation Permissions & Flows', () => {
-    it('should allow OWNER to invite an existing user directly (201)', async () => {
+    it('should create a pending invitation when OWNER invites an existing user without forcing membership (201)', async () => {
       const res = await request(app)
         .post(`/api/v1/organizations/${orgId}/members`)
         .set('Authorization', `Bearer ${ownerUser.token}`)
@@ -145,11 +145,107 @@ describe('Organization Member Invitations Integration Tests', () => {
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.isPending).toBe(false);
+      expect(res.body.data.isPending).toBe(true);
       expect(res.body.data.role).toBe('ADMIN');
       expect(res.body.data.userId).toBe(existingCandidate.id);
 
-      // Verify membership was created
+      // Verify membership was NOT created automatically (no forced membership)
+      const memberInDb = await prisma.organizationMember.findUnique({
+        where: {
+          userId: existingCandidate.id,
+        },
+      });
+      expect(memberInDb).toBeNull();
+
+      // Verify invitation was created in PENDING status
+      const inviteInDb = await prisma.organizationInvitation.findFirst({
+        where: {
+          organizationId: orgId,
+          email: existingCandidate.email,
+        },
+      });
+      expect(inviteInDb).not.toBeNull();
+      expect(inviteInDb?.status).toBe('PENDING');
+    });
+
+    it('should require an authenticated session to accept invitation for an existing user (401)', async () => {
+      const rawToken = randomBytes(32).toString('hex');
+      await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: existingCandidate.email,
+          role: 'ADMIN',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .send({
+          token: rawToken,
+        })
+        .expect(401);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('AUTHENTICATION_REQUIRED');
+    });
+
+    it('should reject a mismatched authenticated user from accepting an existing user invitation (403)', async () => {
+      const rawToken = randomBytes(32).toString('hex');
+      await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: existingCandidate.email,
+          role: 'ADMIN',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .set('Authorization', `Bearer ${memberUser.token}`) // different user
+        .send({
+          token: rawToken,
+        })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INVITATION_RECIPIENT_MISMATCH');
+    });
+
+    it('should allow the matching authenticated user to accept their invitation (200)', async () => {
+      const rawToken = randomBytes(32).toString('hex');
+      await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: existingCandidate.email,
+          role: 'ADMIN',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .set('Authorization', `Bearer ${existingCandidate.token}`)
+        .send({
+          token: rawToken,
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.user.id).toBe(existingCandidate.id);
+      expect(res.body.data.organization.id).toBe(orgId);
+
+      // Verify membership was now created
       const memberInDb = await prisma.organizationMember.findUnique({
         where: {
           userId: existingCandidate.id,
@@ -765,6 +861,311 @@ describe('Organization Member Invitations Integration Tests', () => {
         .expect(400);
 
       expect(expRes.body.error.code).toBe('INVITATION_EXPIRED');
+    });
+  });
+
+  describe('5. Pending Separation, Invitation Management & Tenant Isolation', () => {
+    it('pending invitation is NOT an active member in GET /members, but appears in GET /invitations', async () => {
+      const pendingEmail = `pending.only.${Date.now()}@example.com`;
+      const rawToken = randomBytes(32).toString('hex');
+
+      const inv = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: pendingEmail,
+          role: 'MEMBER',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // 1. GET /members should NOT contain pendingEmail
+      const membersRes = await request(app)
+        .get(`/api/v1/organizations/${orgId}/members`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      expect(membersRes.body.success).toBe(true);
+      const foundInMembers = membersRes.body.data.some(
+        (m: any) => m.user?.email === pendingEmail,
+      );
+      expect(foundInMembers).toBe(false);
+
+      // 2. GET /invitations should contain the pending invitation
+      const invRes = await request(app)
+        .get(`/api/v1/organizations/${orgId}/invitations`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      expect(invRes.body.success).toBe(true);
+      const foundInInvites = invRes.body.data.some(
+        (i: any) => i.id === inv.id && i.email === pendingEmail,
+      );
+      expect(foundInInvites).toBe(true);
+    });
+
+    it('accepted invitation becomes an active member and leaves pending invitations', async () => {
+      const acceptEmail = `accept.lifecycle.${Date.now()}@example.com`;
+      const rawToken = randomBytes(32).toString('hex');
+
+      const inv = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: acceptEmail,
+          role: 'MEMBER',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // Accept invitation
+      const acceptRes = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .send({
+          token: rawToken,
+          name: 'Accepted Member',
+          password: 'Password123!',
+        })
+        .expect(200);
+
+      expect(acceptRes.body.success).toBe(true);
+      const newUserId = acceptRes.body.data.user.id;
+      createdUserIds.push(newUserId);
+
+      // Now GET /members should contain the new user
+      const membersRes = await request(app)
+        .get(`/api/v1/organizations/${orgId}/members`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      const foundMember = membersRes.body.data.find(
+        (m: any) => m.user?.email === acceptEmail,
+      );
+      expect(foundMember).toBeDefined();
+      expect(foundMember.userId).toBe(newUserId);
+
+      // And GET /invitations should no longer contain this accepted invite
+      const invRes = await request(app)
+        .get(`/api/v1/organizations/${orgId}/invitations`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      const stillInInvites = invRes.body.data.some((i: any) => i.id === inv.id);
+      expect(stillInInvites).toBe(false);
+    });
+
+    it('revoked invitation is NOT deleted, has status REVOKED, and cannot be accepted', async () => {
+      const revokeEmail = `revoke.lifecycle.${Date.now()}@example.com`;
+      const rawToken = randomBytes(32).toString('hex');
+
+      const inv = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: revokeEmail,
+          role: 'MEMBER',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // Revoke invitation via DELETE endpoint
+      const delRes = await request(app)
+        .delete(`/api/v1/organizations/${orgId}/invitations/${inv.id}`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      expect(delRes.body.success).toBe(true);
+      expect(delRes.body.data.status).toBe('REVOKED');
+
+      // Verify row is NOT deleted from DB, but marked REVOKED
+      const dbInv = await prisma.organizationInvitation.findUnique({
+        where: { id: inv.id },
+      });
+      expect(dbInv).not.toBeNull();
+      expect(dbInv?.status).toBe('REVOKED');
+
+      // Attempt to accept revoked invitation -> 400 INVITATION_INVALID
+      const acceptRes = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .send({
+          token: rawToken,
+          name: 'Revoked User',
+          password: 'Password123!',
+        })
+        .expect(400);
+
+      expect(acceptRes.body.success).toBe(false);
+      expect(acceptRes.body.error.code).toBe('INVITATION_INVALID');
+    });
+
+    it('resend invalidates the old token and issues a new valid token', async () => {
+      const resendEmail = `resend.lifecycle.${Date.now()}@example.com`;
+      const oldRawToken = randomBytes(32).toString('hex');
+      const oldTokenHash = hashToken(oldRawToken);
+
+      const inv = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: resendEmail,
+          role: 'ADMIN',
+          tokenHash: oldTokenHash,
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // Call resend endpoint
+      const resendRes = await request(app)
+        .post(`/api/v1/organizations/${orgId}/invitations/${inv.id}/resend`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      expect(resendRes.body.success).toBe(true);
+      expect(resendRes.body.data.id).toBe(inv.id);
+
+      // Verify tokenHash changed in DB
+      const updatedInv = await prisma.organizationInvitation.findUnique({
+        where: { id: inv.id },
+      });
+      expect(updatedInv?.tokenHash).not.toBe(oldTokenHash);
+
+      // Attempt to accept using old token -> 404 INVITATION_NOT_FOUND (tokenHash no longer matches)
+      const failAccept = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .send({
+          token: oldRawToken,
+          name: 'Old Token User',
+          password: 'Password123!',
+        })
+        .expect(404);
+
+      expect(failAccept.body.success).toBe(false);
+      expect(failAccept.body.error.code).toBe('INVITATION_NOT_FOUND');
+    });
+
+    it('Organization A invitation CANNOT create Organization B membership even if requested', async () => {
+      const orgAEmail = `orgA.exclusive.${Date.now()}@example.com`;
+      const rawToken = randomBytes(32).toString('hex');
+
+      await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId, // Organization A
+          email: orgAEmail,
+          role: 'MEMBER',
+          tokenHash: hashToken(rawToken),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // Malicious client sends organizationId of Organization B
+      const acceptRes = await request(app)
+        .post('/api/v1/auth/invitations/accept')
+        .send({
+          token: rawToken,
+          name: 'Org A User',
+          password: 'Password123!',
+          organizationId: otherOrgId, // Attempt to spoof destination org
+        })
+        .expect(200);
+
+      const userId = acceptRes.body.data.user.id;
+      createdUserIds.push(userId);
+
+      // Verify user has membership ONLY in orgId (Org A)
+      const memberships = await prisma.organizationMember.findMany({
+        where: { userId },
+      });
+
+      expect(memberships.length).toBe(1);
+      expect(memberships[0].organizationId).toBe(orgId);
+      expect(memberships[0].organizationId).not.toBe(otherOrgId);
+    });
+
+    it('cross-organization invitation management is rejected', async () => {
+      // Create invitation in Org A
+      const inviteOrgA = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: `cross.org.${Date.now()}@example.com`,
+          role: 'MEMBER',
+          tokenHash: hashToken(randomBytes(32).toString('hex')),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // 1. otherOwnerUser tries to list Org A invitations -> 403 NOT_AN_ORGANIZATION_MEMBER
+      const listRes = await request(app)
+        .get(`/api/v1/organizations/${orgId}/invitations`)
+        .set('Authorization', `Bearer ${otherOwnerUser.token}`)
+        .expect(403);
+      expect(listRes.body.error.code).toBe('NOT_AN_ORGANIZATION_MEMBER');
+
+      // 2. otherOwnerUser tries to resend Org A invite under otherOrgId -> 404 INVITATION_NOT_FOUND
+      const resendRes = await request(app)
+        .post(`/api/v1/organizations/${otherOrgId}/invitations/${inviteOrgA.id}/resend`)
+        .set('Authorization', `Bearer ${otherOwnerUser.token}`)
+        .expect(404);
+      expect(resendRes.body.error.code).toBe('INVITATION_NOT_FOUND');
+
+      // 3. otherOwnerUser tries to revoke Org A invite under otherOrgId -> 404 INVITATION_NOT_FOUND
+      const revokeRes = await request(app)
+        .delete(`/api/v1/organizations/${otherOrgId}/invitations/${inviteOrgA.id}`)
+        .set('Authorization', `Bearer ${otherOwnerUser.token}`)
+        .expect(404);
+      expect(revokeRes.body.error.code).toBe('INVITATION_NOT_FOUND');
+    });
+
+    it('MEMBER and VIEWER roles cannot list, resend, or revoke invitations (403)', async () => {
+      const dummyInvite = await prisma.organizationInvitation.create({
+        data: {
+          organizationId: orgId,
+          email: `rbac.invite.${Date.now()}@example.com`,
+          role: 'MEMBER',
+          tokenHash: hashToken(randomBytes(32).toString('hex')),
+          invitedById: ownerUser.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          status: 'PENDING',
+        },
+      });
+
+      // MEMBER cannot list invitations
+      const memberList = await request(app)
+        .get(`/api/v1/organizations/${orgId}/invitations`)
+        .set('Authorization', `Bearer ${memberUser.token}`)
+        .expect(403);
+      expect(memberList.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+
+      // VIEWER cannot list invitations
+      const viewerList = await request(app)
+        .get(`/api/v1/organizations/${orgId}/invitations`)
+        .set('Authorization', `Bearer ${viewerUser.token}`)
+        .expect(403);
+      expect(viewerList.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+
+      // MEMBER cannot resend invitation
+      const memberResend = await request(app)
+        .post(`/api/v1/organizations/${orgId}/invitations/${dummyInvite.id}/resend`)
+        .set('Authorization', `Bearer ${memberUser.token}`)
+        .expect(403);
+      expect(memberResend.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+
+      // VIEWER cannot revoke invitation
+      const viewerRevoke = await request(app)
+        .delete(`/api/v1/organizations/${orgId}/invitations/${dummyInvite.id}`)
+        .set('Authorization', `Bearer ${viewerUser.token}`)
+        .expect(403);
+      expect(viewerRevoke.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
     });
   });
 });

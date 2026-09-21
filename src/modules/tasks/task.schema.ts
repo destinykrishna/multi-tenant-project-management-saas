@@ -26,6 +26,7 @@ export const createTaskSchema = z.object({
     .enum([TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH, TaskPriority.URGENT])
     .default(TaskPriority.MEDIUM),
   assigneeId: z.uuid('Invalid assignee ID format').nullable().optional(),
+  assigneeUserIds: z.array(z.uuid('Invalid assignee ID format')).optional(),
   teamId: z.uuid('Invalid team ID format').nullable().optional(),
   dueDate: z.coerce.date().nullable().optional(),
   position: z.number().optional(),
@@ -60,6 +61,7 @@ export const updateTaskSchema = z
       .enum([TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH, TaskPriority.URGENT])
       .optional(),
     assigneeId: z.uuid('Invalid assignee ID format').nullable().optional(),
+    assigneeUserIds: z.array(z.uuid('Invalid assignee ID format')).optional(),
     teamId: z.uuid('Invalid team ID format').nullable().optional(),
     dueDate: z.coerce.date().nullable().optional(),
     position: z.number().optional(),
@@ -71,6 +73,7 @@ export const updateTaskSchema = z
       data.status !== undefined ||
       data.priority !== undefined ||
       data.assigneeId !== undefined ||
+      data.assigneeUserIds !== undefined ||
       data.teamId !== undefined ||
       data.dueDate !== undefined ||
       data.position !== undefined,

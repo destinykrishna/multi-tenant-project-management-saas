@@ -11,6 +11,7 @@ describe('Organization Member Management Integration Tests', () => {
   let viewerUser: { id: string; email: string; token: string };
   let candidateUser: { id: string; email: string };
   let nonMemberUser: { id: string; email: string; token: string };
+  let secondAdminUser: { id: string; email: string; token: string };
 
   let orgId: string;
   const createdUserIds: string[] = [];
@@ -60,6 +61,13 @@ describe('Organization Member Management Integration Tests', () => {
           passwordHash: 'dummy-hash',
         },
       }),
+      prisma.user.create({
+        data: {
+          name: 'Second Admin User',
+          email: `mem.admin2.${Date.now()}@example.com`,
+          passwordHash: 'dummy-hash',
+        },
+      }),
     ]);
 
     users.forEach((u) => createdUserIds.push(u.id));
@@ -99,6 +107,12 @@ describe('Organization Member Management Integration Tests', () => {
       token: generateAccessToken({ userId: users[5].id, email: users[5].email }),
     };
 
+    secondAdminUser = {
+      id: users[6].id,
+      email: users[6].email,
+      token: generateAccessToken({ userId: users[6].id, email: users[6].email }),
+    };
+
     // 2. Create Organization
     const organization = await prisma.organization.create({
       data: {
@@ -116,6 +130,7 @@ describe('Organization Member Management Integration Tests', () => {
         { organizationId: orgId, userId: adminUser.id, role: 'ADMIN' },
         { organizationId: orgId, userId: memberUser.id, role: 'MEMBER' },
         { organizationId: orgId, userId: viewerUser.id, role: 'VIEWER' },
+        { organizationId: orgId, userId: secondAdminUser.id, role: 'ADMIN' },
       ],
     });
   });
@@ -164,7 +179,7 @@ describe('Organization Member Management Integration Tests', () => {
   });
 
   describe('POST /api/v1/organizations/:id/members', () => {
-    it('should allow ADMIN to add a new member (201)', async () => {
+    it('should create a pending invitation when ADMIN invites a user without forcing membership (201)', async () => {
       const res = await request(app)
         .post(`/api/v1/organizations/${orgId}/members`)
         .set('Authorization', `Bearer ${adminUser.token}`)
@@ -175,9 +190,18 @@ describe('Organization Member Management Integration Tests', () => {
         .expect(201);
 
       expect(res.body.success).toBe(true);
-      expect(res.body.data.userId).toBe(candidateUser.id);
+      expect(res.body.data.isPending).toBe(true);
       expect(res.body.data.role).toBe('MEMBER');
       expect(res.body.data.user.email).toBe(candidateUser.email);
+
+      // Explicitly create membership for subsequent role update/removal tests
+      await prisma.organizationMember.create({
+        data: {
+          organizationId: orgId,
+          userId: candidateUser.id,
+          role: 'MEMBER',
+        },
+      });
     });
 
     it('should reject duplicate member addition (409 Conflict)', async () => {
@@ -226,6 +250,28 @@ describe('Organization Member Management Integration Tests', () => {
   });
 
   describe('PATCH /api/v1/organizations/:id/members/:userId', () => {
+    it('should forbid ADMIN from modifying another ADMIN role (403 Insufficient Permissions)', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${orgId}/members/${secondAdminUser.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({ role: 'MEMBER' })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+    });
+
+    it('should forbid ADMIN from promoting someone to ADMIN (403 Insufficient Permissions)', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${orgId}/members/${candidateUser.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .send({ role: 'ADMIN' })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+    });
+
     it('should allow OWNER to update a member role (200)', async () => {
       const res = await request(app)
         .patch(`/api/v1/organizations/${orgId}/members/${candidateUser.id}`)
@@ -261,6 +307,16 @@ describe('Organization Member Management Integration Tests', () => {
   });
 
   describe('DELETE /api/v1/organizations/:id/members/:userId', () => {
+    it('should forbid ADMIN from removing another ADMIN (403 Insufficient Permissions)', async () => {
+      const res = await request(app)
+        .delete(`/api/v1/organizations/${orgId}/members/${secondAdminUser.id}`)
+        .set('Authorization', `Bearer ${adminUser.token}`)
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+    });
+
     it('should forbid regular MEMBER from removing a member (403 Insufficient Permissions)', async () => {
       const res = await request(app)
         .delete(`/api/v1/organizations/${orgId}/members/${candidateUser.id}`)
@@ -281,7 +337,28 @@ describe('Organization Member Management Integration Tests', () => {
       expect(res.body.error.code).toBe('CANNOT_REMOVE_OWNER');
     });
 
-    it('should allow ADMIN to remove a member (200)', async () => {
+    it('should allow OWNER to remove an ADMIN (200)', async () => {
+      const res = await request(app)
+        .delete(`/api/v1/organizations/${orgId}/members/${secondAdminUser.id}`)
+        .set('Authorization', `Bearer ${ownerUser.token}`)
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.message).toBe('Member removed successfully');
+    });
+
+    it('should allow ADMIN to remove a non-admin member (200)', async () => {
+      // Set candidateUser back to MEMBER
+      await prisma.organizationMember.update({
+        where: {
+          organizationId_userId: {
+            organizationId: orgId,
+            userId: candidateUser.id,
+          },
+        },
+        data: { role: 'MEMBER' },
+      });
+
       const res = await request(app)
         .delete(`/api/v1/organizations/${orgId}/members/${candidateUser.id}`)
         .set('Authorization', `Bearer ${adminUser.token}`)

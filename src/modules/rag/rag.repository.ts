@@ -1,37 +1,77 @@
+import { Prisma } from '../../generated/prisma/client.js';
 import { prisma } from '../../config/database.js';
-import type { CreateKnowledgeChunkInput, RagSourceType } from './rag.types.js';
-import { cosineSimilarity } from './utils/vector.util.js';
+import type { CreateKnowledgeChunkInput, RagRetrievedChunk, RagSourceType } from './rag.types.js';
 
 export class RagRepository {
   async upsertChunk(data: CreateKnowledgeChunkInput) {
-    return prisma.ragKnowledgeDocument.upsert({
-      where: {
-        organizationId_sourceType_sourceId_chunkIndex: {
-          organizationId: data.organizationId,
-          sourceType: data.sourceType,
-          sourceId: data.sourceId,
-          chunkIndex: data.chunkIndex,
-        },
-      },
-      update: {
-        totalChunks: data.totalChunks,
-        title: data.title,
-        content: data.content,
-        metadata: data.metadata ?? undefined,
-        embedding: data.embedding,
-      },
-      create: {
-        organizationId: data.organizationId,
-        sourceType: data.sourceType,
-        sourceId: data.sourceId,
-        chunkIndex: data.chunkIndex,
-        totalChunks: data.totalChunks,
-        title: data.title,
-        content: data.content,
-        metadata: data.metadata ?? undefined,
-        embedding: data.embedding,
-      },
-    });
+    const vectorLiteral = `[${data.embedding.join(',')}]`;
+    const metadataJson = JSON.stringify(data.metadata ?? {});
+
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        organizationId: string;
+        sourceType: RagSourceType;
+        sourceId: string;
+        chunkIndex: number;
+        totalChunks: number;
+        title: string | null;
+        content: string;
+        metadata: unknown;
+        createdAt: Date;
+        updatedAt: Date;
+      }>
+    >`
+      INSERT INTO "rag_knowledge_documents" (
+        "id",
+        "organizationId",
+        "sourceType",
+        "sourceId",
+        "chunkIndex",
+        "totalChunks",
+        "title",
+        "content",
+        "metadata",
+        "embedding",
+        "createdAt",
+        "updatedAt"
+      ) VALUES (
+        gen_random_uuid(),
+        ${data.organizationId},
+        ${data.sourceType}::"RagSourceType",
+        ${data.sourceId},
+        ${data.chunkIndex},
+        ${data.totalChunks},
+        ${data.title ?? null},
+        ${data.content},
+        ${metadataJson}::jsonb,
+        ${vectorLiteral}::vector,
+        NOW(),
+        NOW()
+      )
+      ON CONFLICT ("organizationId", "sourceType", "sourceId", "chunkIndex")
+      DO UPDATE SET
+        "totalChunks" = EXCLUDED."totalChunks",
+        "title" = EXCLUDED."title",
+        "content" = EXCLUDED."content",
+        "metadata" = EXCLUDED."metadata",
+        "embedding" = EXCLUDED."embedding",
+        "updatedAt" = NOW()
+      RETURNING
+        "id",
+        "organizationId",
+        "sourceType",
+        "sourceId",
+        "chunkIndex",
+        "totalChunks",
+        "title",
+        "content",
+        "metadata",
+        "createdAt",
+        "updatedAt"
+    `;
+
+    return rows[0];
   }
 
   async deleteOrphanChunks(
@@ -128,78 +168,74 @@ export class RagRepository {
     minSimilarity: number;
     sourceTypes?: RagSourceType[];
     projectId?: string;
-  }) {
-    // 1. Strictly enforce organizationId filter at the database query level
-    const where: {
-      organizationId: string;
-      sourceType?: { in: RagSourceType[] };
-    } = {
-      organizationId: options.organizationId,
-    };
+  }): Promise<RagRetrievedChunk[]> {
+    const vectorLiteral = `[${options.queryEmbedding.join(',')}]`;
 
+    // 1. Base conditions: strictly tenant-scoped, non-null embedding, and threshold filter
+    const conditions: Prisma.Sql[] = [
+      Prisma.sql`"organizationId" = ${options.organizationId}`,
+      Prisma.sql`"embedding" IS NOT NULL`,
+      Prisma.sql`(1 - ("embedding" <=> ${vectorLiteral}::vector)) >= ${options.minSimilarity}`,
+    ];
+
+    // 2. Filter by source types if specified
     if (options.sourceTypes && options.sourceTypes.length > 0) {
-      where.sourceType = { in: options.sourceTypes };
+      conditions.push(Prisma.sql`"sourceType" IN (${Prisma.join(options.sourceTypes)})`);
     }
 
-    // 2. Fetch candidates belonging to this organization
-    const candidates = await prisma.ragKnowledgeDocument.findMany({
-      where,
-      select: {
-        id: true,
-        organizationId: true,
-        sourceType: true,
-        sourceId: true,
-        chunkIndex: true,
-        totalChunks: true,
-        title: true,
-        content: true,
-        metadata: true,
-        embedding: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-
-    // 3. Compute cosine similarity & filter by threshold
-    const scoredChunks = candidates
-      .map((doc) => {
-        // Optional projectId filter
-        if (options.projectId) {
-          const metaObj = doc.metadata as Record<string, unknown> | null;
-          const entityProjectId =
-            doc.sourceType === 'PROJECT'
-              ? doc.sourceId
-              : (metaObj?.['projectId'] as string | undefined);
-
-          if (entityProjectId !== options.projectId) {
-            return null;
-          }
-        }
-
-        const similarityScore = cosineSimilarity(options.queryEmbedding, doc.embedding);
-        return {
-          id: doc.id,
-          organizationId: doc.organizationId,
-          sourceType: doc.sourceType,
-          sourceId: doc.sourceId,
-          chunkIndex: doc.chunkIndex,
-          totalChunks: doc.totalChunks,
-          title: doc.title,
-          content: doc.content,
-          metadata: doc.metadata,
-          similarityScore: Math.round(similarityScore * 10000) / 10000,
-        };
-      })
-      .filter(
-        (doc): doc is NonNullable<typeof doc> =>
-          doc !== null && doc.similarityScore >= options.minSimilarity,
+    // 3. Filter by projectId if specified (matching PROJECT entity or nested metadata)
+    if (options.projectId) {
+      conditions.push(
+        Prisma.sql`(("sourceType" = 'PROJECT' AND "sourceId" = ${options.projectId}) OR ("metadata"->>'projectId' = ${options.projectId}))`,
       );
+    }
 
-    // 4. Sort descending by similarity score
-    scoredChunks.sort((a, b) => b.similarityScore - a.similarityScore);
+    const whereClause = Prisma.join(conditions, ' AND ');
 
-    // 5. Return topK chunks
-    return scoredChunks.slice(0, options.topK);
+    // 4. Execute vector similarity search directly inside PostgreSQL using <=> cosine distance
+    const rows = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        organizationId: string;
+        sourceType: RagSourceType;
+        sourceId: string;
+        chunkIndex: number;
+        totalChunks: number;
+        title: string | null;
+        content: string;
+        metadata: unknown;
+        similarityScore: number;
+      }>
+    >`
+      SELECT
+        "id",
+        "organizationId",
+        "sourceType",
+        "sourceId",
+        "chunkIndex",
+        "totalChunks",
+        "title",
+        "content",
+        "metadata",
+        ROUND((1 - ("embedding" <=> ${vectorLiteral}::vector))::numeric, 4)::float AS "similarityScore"
+      FROM "rag_knowledge_documents"
+      WHERE ${whereClause}
+      ORDER BY "embedding" <=> ${vectorLiteral}::vector ASC
+      LIMIT ${options.topK}
+    `;
+
+    return rows.map((row) => ({
+      id: row.id,
+      organizationId: row.organizationId,
+      sourceType: row.sourceType,
+      sourceId: row.sourceId,
+      chunkIndex: row.chunkIndex,
+      totalChunks: row.totalChunks,
+      title: row.title,
+      content: row.content,
+      metadata: row.metadata as Prisma.JsonValue | null,
+      similarityScore: row.similarityScore,
+    }));
   }
 
   async deleteByOrganization(organizationId: string) {

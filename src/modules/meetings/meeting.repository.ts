@@ -164,4 +164,3 @@ export class MeetingRepository {
 }
 
 export const meetingRepository = new MeetingRepository();
-

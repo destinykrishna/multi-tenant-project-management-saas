@@ -41,7 +41,9 @@ export class GroqAiLlmProvider implements ILlmProvider {
 
     for (const model of modelsToTry) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeoutMs);
 
       try {
         const payload: Record<string, unknown> = {
@@ -139,9 +141,12 @@ export class GroqAiLlmProvider implements ILlmProvider {
 
         const errorText = await response.text();
         try {
-          const parsed = JSON.parse(errorText);
-          if (parsed?.error?.message) {
-            lastError = parsed.error.message;
+          const json: unknown = JSON.parse(errorText);
+          if (json && typeof json === 'object' && 'error' in json) {
+            const errPayload = (json as { error?: { message?: unknown } }).error;
+            if (errPayload && typeof errPayload.message === 'string') {
+              lastError = errPayload.message;
+            }
           }
         } catch {
           lastError = errorText || lastError;

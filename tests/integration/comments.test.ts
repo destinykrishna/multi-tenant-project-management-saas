@@ -500,4 +500,172 @@ describe('Comments Module Integration Tests', () => {
       expect(res.body.error.code).toBe('COMMENT_NOT_FOUND');
     });
   });
+
+  // ==========================================
+  // Task Comments Focused Requirements
+  // ==========================================
+  describe('Task Comments Focused Requirements', () => {
+    let focusCommentId: string;
+
+    it('create/list comment', async () => {
+      // 1. Create comment
+      const createRes = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .set('Authorization', `Bearer ${member1User.token}`)
+        .send({
+          content: 'Focused test initial comment content',
+        })
+        .expect(201);
+
+      expect(createRes.body.success).toBe(true);
+      expect(createRes.body.data.id).toBeDefined();
+      expect(createRes.body.data.content).toBe('Focused test initial comment content');
+      expect(createRes.body.data.userId).toBe(member1User.id);
+      expect(createRes.body.data.user.email).toBe(member1User.email);
+
+      focusCommentId = createRes.body.data.id;
+
+      // 2. List comments (deterministic ordering)
+      const listRes = await request(app)
+        .get(
+          `/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments?sortBy=createdAt&sortOrder=asc`,
+        )
+        .set('Authorization', `Bearer ${member2User.token}`)
+        .expect(200);
+
+      expect(listRes.body.success).toBe(true);
+      expect(Array.isArray(listRes.body.data.items)).toBe(true);
+      const found = listRes.body.data.items.find((c: any) => c.id === focusCommentId);
+      expect(found).toBeDefined();
+      expect(found.content).toBe('Focused test initial comment content');
+    });
+
+    it('update own comment', async () => {
+      const res = await request(app)
+        .patch(
+          `/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments/${focusCommentId}`,
+        )
+        .set('Authorization', `Bearer ${member1User.token}`)
+        .send({
+          content: 'Focused test updated comment content',
+        })
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.content).toBe('Focused test updated comment content');
+    });
+
+    it("cannot edit another user's comment", async () => {
+      const res = await request(app)
+        .patch(
+          `/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments/${focusCommentId}`,
+        )
+        .set('Authorization', `Bearer ${member2User.token}`)
+        .send({
+          content: 'Attempting to edit someone else comment',
+        })
+        .expect(403);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('INSUFFICIENT_PERMISSIONS');
+    });
+
+    it('delete own comment', async () => {
+      // Create a comment to be deleted by author
+      const createRes = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .set('Authorization', `Bearer ${member2User.token}`)
+        .send({
+          content: 'Comment to be deleted by own author',
+        })
+        .expect(201);
+
+      const toDeleteId = createRes.body.data.id;
+
+      const deleteRes = await request(app)
+        .delete(
+          `/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments/${toDeleteId}`,
+        )
+        .set('Authorization', `Bearer ${member2User.token}`)
+        .expect(200);
+
+      expect(deleteRes.body.success).toBe(true);
+
+      const check = await prisma.comment.findUnique({
+        where: { id: toDeleteId },
+      });
+      expect(check).toBeNull();
+    });
+
+    it("cannot access another organization's task/comment", async () => {
+      // Outside user tries to access Org 1 task comments
+      const crossRes = await request(app)
+        .get(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .set('Authorization', `Bearer ${outsideUser.token}`)
+        .expect(403);
+
+      expect(crossRes.body.success).toBe(false);
+      expect(crossRes.body.error.code).toBe('NOT_AN_ORGANIZATION_MEMBER');
+
+      // Member of Org 1 tries to access Org 2 task via Org 1 URL
+      const mismatchRes = await request(app)
+        .get(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task2Id}/comments`)
+        .set('Authorization', `Bearer ${member1User.token}`)
+        .expect(404);
+
+      expect(mismatchRes.body.success).toBe(false);
+      expect(mismatchRes.body.error.code).toBe('TASK_NOT_FOUND');
+    });
+
+    it('validation/empty content', async () => {
+      // Empty content on create
+      const emptyCreateRes = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .set('Authorization', `Bearer ${member1User.token}`)
+        .send({
+          content: '   ',
+        })
+        .expect(422);
+
+      expect(emptyCreateRes.body.success).toBe(false);
+      expect(emptyCreateRes.body.error.code).toBe('VALIDATION_ERROR');
+
+      // Empty content on update
+      const emptyUpdateRes = await request(app)
+        .patch(
+          `/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments/${focusCommentId}`,
+        )
+        .set('Authorization', `Bearer ${member1User.token}`)
+        .send({
+          content: '',
+        })
+        .expect(422);
+
+      expect(emptyUpdateRes.body.success).toBe(false);
+      expect(emptyUpdateRes.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('unauthorized/non-member access', async () => {
+      // 1. Missing auth token
+      const noAuthRes = await request(app)
+        .get(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .expect(401);
+
+      expect(noAuthRes.body.success).toBe(false);
+      expect(noAuthRes.body.error.code).toBe('AUTH_HEADER_REQUIRED');
+
+      // 2. Non-member access
+      const nonMemberRes = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${task1Id}/comments`)
+        .set('Authorization', `Bearer ${outsideUser.token}`)
+        .send({
+          content: 'Unauthorized comment attempt',
+        })
+        .expect(403);
+
+      expect(nonMemberRes.body.success).toBe(false);
+      expect(nonMemberRes.body.error.code).toBe('NOT_AN_ORGANIZATION_MEMBER');
+    });
+  });
 });
+

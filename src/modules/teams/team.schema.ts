@@ -35,9 +35,7 @@ export const updateTeamSchema = z
   })
   .refine(
     (data) =>
-      data.name !== undefined ||
-      data.description !== undefined ||
-      data.memberUserIds !== undefined,
+      data.name !== undefined || data.description !== undefined || data.memberUserIds !== undefined,
     {
       message: 'At least one field must be provided for update',
     },

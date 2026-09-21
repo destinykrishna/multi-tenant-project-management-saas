@@ -12,13 +12,13 @@ function base32Encode(buffer: Buffer): string {
     bits += 8;
 
     while (bits >= 5) {
-      output += BASE32_CHARS[(value >>> (bits - 5)) & 31];
+      output += BASE32_CHARS[(value >>> (bits - 5)) & 31] ?? '';
       bits -= 5;
     }
   }
 
   if (bits > 0) {
-    output += BASE32_CHARS[(value << (5 - bits)) & 31];
+    output += BASE32_CHARS[(value << (5 - bits)) & 31] ?? '';
   }
 
   return output;
@@ -70,7 +70,12 @@ export function generateTotpSecret(): string {
   return TotpService.generateSecret();
 }
 
-export function generateTotpCode(secret: string, stepSeconds = 30, digits = 6, timestamp = Date.now()): string {
+export function generateTotpCode(
+  secret: string,
+  stepSeconds = 30,
+  _digits = 6,
+  timestamp = Date.now(),
+): string {
   const secretBuffer = base32Decode(secret);
   const counter = Math.floor(timestamp / 1000 / stepSeconds);
   return generateHOTP(secretBuffer, counter);
@@ -82,7 +87,7 @@ export function verifyTotpCode(
   window = 1,
   stepSeconds = 30,
   digits = 6,
-  timestamp = Date.now()
+  timestamp = Date.now(),
 ): boolean {
   if (!secret || !token || token.length !== digits || !/^\d+$/.test(token)) {
     return false;
@@ -133,4 +138,3 @@ export class TotpService {
     return verifyTotpCode(secret, token);
   }
 }
-

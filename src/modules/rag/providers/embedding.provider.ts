@@ -15,12 +15,7 @@ export function createEmbeddingProvider(): IEmbeddingProvider {
         env.EMBEDDING_MODEL && env.EMBEDDING_MODEL !== 'text-embedding-3-small'
           ? env.EMBEDDING_MODEL
           : 'gemini-embedding-001';
-      const dimension = env.EMBEDDING_DIMENSION === 1536 ? 768 : env.EMBEDDING_DIMENSION;
-      return new GeminiEmbeddingProvider(
-        env.EMBEDDING_API_KEY,
-        model,
-        dimension,
-      );
+      return new GeminiEmbeddingProvider(env.EMBEDDING_API_KEY, model, env.EMBEDDING_DIMENSION);
     }
     case 'openai':
       return new OpenAIEmbeddingProvider(

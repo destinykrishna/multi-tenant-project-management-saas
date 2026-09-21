@@ -37,14 +37,18 @@ export class ListMeetingsTool implements AgentTool<ListMeetingsInput, SanitizedM
 
   readonly toolDefinition = {
     name: 'listMeetings',
-    description: 'List upcoming or past meetings in the organization. Can filter by date range and project.',
+    description:
+      'List upcoming or past meetings in the organization. Can filter by date range and project.',
     parameters: {
       type: 'object' as const,
       properties: {
         from: { type: 'string', description: 'ISO 8601 start date to filter meetings from' },
         to: { type: 'string', description: 'ISO 8601 end date to filter meetings until' },
         projectId: { type: 'string', description: 'UUID of the project to filter meetings by' },
-        limit: { type: 'number', description: 'Maximum number of meetings to return (max 20, default 10)' },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of meetings to return (max 20, default 10)',
+        },
       },
     },
   };

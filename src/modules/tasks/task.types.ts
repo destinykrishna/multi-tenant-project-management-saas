@@ -13,6 +13,12 @@ export interface SafeTeamSummary {
   description: string | null;
 }
 
+export interface TaskAssigneeSummary {
+  id: string;
+  userId: string;
+  user: SafeUserSummary;
+}
+
 export interface TaskResponse {
   id: string;
   projectId: string;
@@ -22,6 +28,7 @@ export interface TaskResponse {
   priority: TaskPriority;
   assigneeId: string | null;
   assignee?: SafeUserSummary | null;
+  assignees: TaskAssigneeSummary[];
   teamId?: string | null;
   team?: SafeTeamSummary | null;
   createdById: string;

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { logger } from '../config/logger.js';
+import { redis } from '../config/redis.js';
 
 /**
  * High-Throughput In-Memory Bloom Filter
- * 
+ *
  * Space-efficient probabilistic data structure for set membership testing.
  * - False Negative Rate: 0% (Definitively guaranteed)
  * - False Positive Rate: < 0.1% (Configurable via size and hash count)
@@ -20,7 +21,9 @@ export class BloomFilter {
    */
   constructor(expectedItems: number = 100_000, falsePositiveRate: number = 0.001) {
     // Optimal bit array size m = - (n * ln(p)) / (ln(2)^2)
-    const m = Math.ceil(-1 * ((expectedItems * Math.log(falsePositiveRate)) / Math.pow(Math.log(2), 2)));
+    const m = Math.ceil(
+      -1 * ((expectedItems * Math.log(falsePositiveRate)) / Math.pow(Math.log(2), 2)),
+    );
     this.size = Math.max(m, 1024);
 
     // Optimal number of hash functions k = (m / n) * ln(2)
@@ -96,34 +99,72 @@ export class BloomFilter {
  */
 class TokenRevocationBloomService {
   private readonly bloom = new BloomFilter(250_000, 0.0005);
-  // Authoritative in-memory set to confirm hits (eliminating false-positive logouts)
+  // Authoritative in-memory set to confirm hits locally (eliminating false-positive logouts)
   private readonly authoritativeSet = new Set<string>();
 
   /**
-   * Revoke a token ID (jti)
+   * Revoke a token ID (jti) with bounded TTL in Redis and register in Bloom filter
    */
-  revoke(jti: string): void {
+  async revoke(jti: string, ttlSeconds: number = 900): Promise<void> {
     if (!jti) return;
     this.bloom.add(jti);
     this.authoritativeSet.add(jti);
-    logger.info({ jti }, 'Security: Token revoked and registered in Bloom filter');
+
+    const ttl = Math.max(1, Math.ceil(ttlSeconds));
+    try {
+      await redis.setex(`revoked:jti:${jti}`, ttl, '1');
+      logger.info({ jti, ttl }, 'Security: Token JTI revoked in distributed Redis denylist');
+    } catch (error) {
+      logger.error({ error, jti }, 'Failed to store revoked JTI in Redis');
+    }
   }
 
   /**
-   * Ultra-fast revocation check:
-   * 1. Check Bloom Filter (takes ~0.005 ms). If false -> 100% valid, bypass DB.
-   * 2. If true -> double-check authoritative set/DB to resolve any false positives.
+   * Synchronous check against local in-memory Bloom filter and authoritative set.
+   * Preserved for synchronous callers like Socket.IO handshake.
    */
   isRevoked(jti?: string): boolean {
     if (!jti) return false;
 
-    // Fast negative check: 0% false negative
     if (!this.bloom.has(jti)) {
       return false;
     }
 
-    // Secondary authoritative verification
     return this.authoritativeSet.has(jti);
+  }
+
+  /**
+   * Authoritative distributed revocation check against Redis.
+   * Survives process restarts and works across multiple backend instances.
+   */
+  async isRevokedDistributed(jti?: string): Promise<boolean> {
+    if (!jti) return false;
+
+    // Fast positive check: if local Bloom filter / authoritative set already confirms revocation
+    if (this.isRevoked(jti)) {
+      return true;
+    }
+
+    try {
+      const exists = await redis.exists(`revoked:jti:${jti}`);
+      if (exists === 1) {
+        this.bloom.add(jti);
+        this.authoritativeSet.add(jti);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      logger.error({ error, jti }, 'Redis token revocation check failed; failing closed');
+      throw error;
+    }
+  }
+
+  /**
+   * Clears local in-memory Bloom filter and set (for testing process restarts / multi-instance simulation)
+   */
+  clearLocalState(): void {
+    this.bloom.clear();
+    this.authoritativeSet.clear();
   }
 
   /**
@@ -142,7 +183,7 @@ export const tokenRevocationBloom = new TokenRevocationBloomService();
 
 /**
  * Cache-Penetration Guard Bloom Filter
- * 
+ *
  * Prevents denial-of-service (DoS) attacks where attackers send millions of requests
  * for random/fake UUIDs to exhaust database connection pools and bypass caches.
  */
@@ -169,4 +210,3 @@ class EntityCacheBloomService {
 }
 
 export const entityCacheBloom = new EntityCacheBloomService();
-

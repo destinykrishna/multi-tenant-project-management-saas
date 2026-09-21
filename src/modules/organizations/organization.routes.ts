@@ -8,6 +8,7 @@ import {
   updateOrganizationSchema,
   organizationIdParamSchema,
   organizationMemberParamSchema,
+  organizationInvitationParamSchema,
   addMemberSchema,
   updateMemberRoleSchema,
 } from './organization.schema.js';
@@ -105,6 +106,32 @@ router.delete(
   validateRequest({ params: organizationMemberParamSchema }),
   authorizeOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN], { orgIdParam: 'id' }),
   organizationController.removeMember,
+);
+
+// ─── Invitation Management ──────────────────────────────────────────────────
+
+// List pending invitations (OWNER, ADMIN only)
+router.get(
+  '/:id/invitations',
+  validateRequest({ params: organizationIdParamSchema }),
+  authorizeOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN], { orgIdParam: 'id' }),
+  organizationController.listInvitations,
+);
+
+// Resend invitation email (OWNER, ADMIN only)
+router.post(
+  '/:id/invitations/:invitationId/resend',
+  validateRequest({ params: organizationInvitationParamSchema }),
+  authorizeOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN], { orgIdParam: 'id' }),
+  organizationController.resendInvitation,
+);
+
+// Revoke invitation (OWNER, ADMIN only)
+router.delete(
+  '/:id/invitations/:invitationId',
+  validateRequest({ params: organizationInvitationParamSchema }),
+  authorizeOrgRole([OrganizationRole.OWNER, OrganizationRole.ADMIN], { orgIdParam: 'id' }),
+  organizationController.revokeInvitation,
 );
 
 export const organizationRouter = router;

@@ -1,11 +1,16 @@
 export class SensitiveDataSanitizer {
   private static readonly JWT_REGEX = /Bearer\s+ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/gi;
-  private static readonly RAW_JWT_REGEX = /\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/gi;
-  private static readonly API_KEY_REGEX = /\b(gsk_|AIza|sk-|ghp_|gho_|xoxb-|xoxp-)[A-Za-z0-9_-]{16,}\b/gi;
+  private static readonly RAW_JWT_REGEX =
+    /\bey[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\b/gi;
+  private static readonly API_KEY_REGEX =
+    /\b(gsk_|AIza|sk-|ghp_|gho_|xoxb-|xoxp-)[A-Za-z0-9_-]{16,}\b/gi;
   private static readonly BCRYPT_REGEX = /\$2[abxy]\$\d{2}\$[A-Za-z0-9./]{53}/gi;
-  private static readonly ARGON2_REGEX = /\$argon2[id]?\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]+\$[A-Za-z0-9+/]+/gi;
-  private static readonly DB_URI_REGEX = /(?:postgres|postgresql|mysql|mongodb|redis):\/\/[^:\s]+:[^@\s]+@[^\s]+/gi;
-  private static readonly PRIVATE_KEY_REGEX = /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi;
+  private static readonly ARGON2_REGEX =
+    /\$argon2[id]?\$v=\d+\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]+\$[A-Za-z0-9+/]+/gi;
+  private static readonly DB_URI_REGEX =
+    /(?:postgres|postgresql|mysql|mongodb|redis):\/\/[^:\s]+:[^@\s]+@[^\s]+/gi;
+  private static readonly PRIVATE_KEY_REGEX =
+    /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/gi;
 
   private static readonly PROMPT_INJECTION_PATTERNS = [
     /ignore\s+(all\s+)?(previous|prior|above)\s+(instructions|directions|prompts|rules)/i,

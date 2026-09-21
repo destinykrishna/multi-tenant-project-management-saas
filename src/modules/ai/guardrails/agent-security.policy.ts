@@ -67,7 +67,9 @@ export class AgentSecurityPolicy {
     // 5. Mutation Limits & Cost Safeguard (covers WRITE + EXTERNAL_SIDE_EFFECT)
     const maxMutations = stats.maxMutations ?? this.DEFAULT_MAX_MUTATIONS;
     if (
-      (tool.isMutation || tool.riskLevel === 'WRITE' || tool.riskLevel === 'EXTERNAL_SIDE_EFFECT') &&
+      (tool.isMutation ||
+        tool.riskLevel === 'WRITE' ||
+        tool.riskLevel === 'EXTERNAL_SIDE_EFFECT') &&
       stats.mutationCalls >= maxMutations
     ) {
       return {
@@ -89,8 +91,15 @@ export class AgentSecurityPolicy {
    * Validates that the agent request context conforms to security invariants.
    */
   validateRequestContext(context: AiRequestContext): void {
-    if (!context.organizationId || typeof context.organizationId !== 'string' || !context.userId || typeof context.userId !== 'string') {
-      throw new ValidationError('Authentication and organization context are required for agent execution');
+    if (
+      !context.organizationId ||
+      typeof context.organizationId !== 'string' ||
+      !context.userId ||
+      typeof context.userId !== 'string'
+    ) {
+      throw new ValidationError(
+        'Authentication and organization context are required for agent execution',
+      );
     }
 
     const validRoles = Object.values(OrganizationRole);

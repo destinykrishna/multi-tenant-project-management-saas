@@ -45,7 +45,8 @@ export interface SanitizedTaskSummary {
 
 export class SearchTasksTool implements AgentTool<SearchTasksInput, SanitizedTaskSummary[]> {
   readonly name = 'searchTasks';
-  readonly description = 'Search and list tasks inside a specific project by keyword, status, priority, or assignee.';
+  readonly description =
+    'Search and list tasks inside a specific project by keyword, status, priority, or assignee.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -53,11 +54,15 @@ export class SearchTasksTool implements AgentTool<SearchTasksInput, SanitizedTas
 
   readonly toolDefinition = {
     name: 'searchTasks',
-    description: 'Search and list tasks inside a specific project by keyword, status, priority, or assignee.',
+    description:
+      'Search and list tasks inside a specific project by keyword, status, priority, or assignee.',
     parameters: {
       type: 'object' as const,
       properties: {
-        projectId: { type: 'string', description: 'The unique UUID of the project to search tasks in' },
+        projectId: {
+          type: 'string',
+          description: 'The unique UUID of the project to search tasks in',
+        },
         search: { type: 'string', description: 'Search term matching task title or description' },
         status: {
           type: 'string',

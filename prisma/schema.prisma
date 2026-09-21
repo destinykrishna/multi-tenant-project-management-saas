@@ -1,11 +1,13 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  moduleFormat = "cjs"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "cjs"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 enum Role {
@@ -99,6 +101,8 @@ model User {
   meetingAttendees    MeetingAttendee[]    @relation("MeetingAttendees")
   invitationsSent     OrganizationInvitation[] @relation("InvitationsSent")
   teamMemberships     TeamMember[]
+  taskAssignments     TaskAssignee[]           @relation("TaskAssignees")
+  attachments         Attachment[]
 
   @@map("users")
 }
@@ -224,6 +228,8 @@ model Task {
   createdBy User      @relation("TaskCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   comments  Comment[]
   meetings  Meeting[]
+  assignees TaskAssignee[]
+  attachments Attachment[]
 
   @@index([projectId, status, position])
   @@index([projectId, dueDate])
@@ -231,6 +237,21 @@ model Task {
   @@index([teamId])
   @@index([createdById])
   @@map("tasks")
+}
+
+model TaskAssignee {
+  id        String   @id @default(uuid())
+  taskId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  user User @relation("TaskAssignees", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_assignees")
 }
 
 model Team {
@@ -279,6 +300,25 @@ model Comment {
   @@index([taskId, createdAt])
   @@index([userId])
   @@map("comments")
+}
+
+model Attachment {
+  id           String   @id @default(uuid())
+  taskId       String
+  uploadedById String
+  originalName String
+  storageKey   String   @unique
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([taskId, createdAt])
+  @@index([uploadedById])
+  @@map("attachments")
 }
 
 model ActivityLog {
@@ -408,9 +448,9 @@ model RagKnowledgeDocument {
   totalChunks    Int           @default(1)
   title          String?
   content        String        @db.Text
-  metadata       Json?         @default("{}")
-  embedding      Float[]
-  createdAt      DateTime      @default(now())
+  metadata       Json?                         @default("{}")
+  embedding      Unsupported("vector(1536)")?
+  createdAt      DateTime                      @default(now())
   updatedAt      DateTime      @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

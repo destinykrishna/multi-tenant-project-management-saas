@@ -23,7 +23,8 @@ export class ActivityService {
   async logActivity(params: LogActivityParams): Promise<ActivityLogResponse> {
     const latest = await this.repository.findLatestByOrganization(params.organizationId);
     const prevMetadata = (latest?.metadata as Record<string, unknown> | null) || null;
-    const prevHash = (prevMetadata?.['_security'] as { hash?: string } | undefined)?.hash || '0'.repeat(64);
+    const prevHash =
+      (prevMetadata?.['_security'] as { hash?: string } | undefined)?.hash || '0'.repeat(64);
 
     const hashPayload = `${prevHash}:${params.organizationId}:${params.userId}:${params.entityType}:${params.entityId}:${params.action}`;
     const securityHash = createHash('sha256').update(hashPayload).digest('hex');

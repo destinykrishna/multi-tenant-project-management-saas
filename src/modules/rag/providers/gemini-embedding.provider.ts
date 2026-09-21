@@ -76,7 +76,10 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       }
     }
 
-    logger.error({ errors, preferredModel: this.preferredModel }, 'All Gemini embedding attempts failed');
+    logger.error(
+      { errors, preferredModel: this.preferredModel },
+      'All Gemini embedding attempts failed',
+    );
     throw new InternalError(`Gemini embedding failed: ${errors[0] ?? 'unknown error'}`);
   }
 
@@ -105,9 +108,12 @@ export class GeminiEmbeddingProvider implements IEmbeddingProvider {
       const errorText = await response.text();
       let errorMsg = `HTTP ${response.status}`;
       try {
-        const parsed = JSON.parse(errorText);
-        if (parsed?.error?.message) {
-          errorMsg = parsed.error.message;
+        const json: unknown = JSON.parse(errorText);
+        if (json && typeof json === 'object' && 'error' in json) {
+          const errPayload = (json as { error?: { message?: unknown } }).error;
+          if (errPayload && typeof errPayload.message === 'string') {
+            errorMsg = errPayload.message;
+          }
         }
       } catch {
         errorMsg = errorText || errorMsg;

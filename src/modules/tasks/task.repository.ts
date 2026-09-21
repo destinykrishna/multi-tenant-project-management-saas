@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 import type { TaskStatus, TaskPriority } from '../../constants/task.js';
 
 export interface CreateTaskRepoData {
@@ -8,6 +9,7 @@ export interface CreateTaskRepoData {
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId?: string | null;
+  assigneeUserIds?: string[];
   teamId?: string | null;
   dueDate?: Date | null;
   position: number;
@@ -20,6 +22,7 @@ export interface UpdateTaskRepoData {
   status?: TaskStatus;
   priority?: TaskPriority;
   assigneeId?: string | null;
+  assigneeUserIds?: string[];
   teamId?: string | null;
   dueDate?: Date | null;
   position?: number;
@@ -58,6 +61,20 @@ const taskIncludes = {
       name: true,
       email: true,
       avatarUrl: true,
+    },
+  },
+  assignees: {
+    select: {
+      id: true,
+      userId: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true,
+        },
+      },
     },
   },
   team: {
@@ -108,6 +125,28 @@ export class TaskRepository {
     return !!member;
   }
 
+  async getOrgMemberUsers(organizationId: string, userIds: string[]) {
+    if (userIds.length === 0) return [];
+    const members = await prisma.organizationMember.findMany({
+      where: {
+        organizationId,
+        userId: { in: userIds },
+      },
+      select: {
+        userId: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+    return members.map((m) => m.user);
+  }
+
   async isTeamInOrg(organizationId: string, teamId: string): Promise<boolean> {
     const team = await prisma.team.findFirst({
       where: {
@@ -136,6 +175,9 @@ export class TaskRepository {
   }
 
   async createTask(data: CreateTaskRepoData) {
+    const assigneeUserIds = data.assigneeUserIds ?? (data.assigneeId ? [data.assigneeId] : []);
+    const primaryAssigneeId = assigneeUserIds[0] ?? data.assigneeId ?? null;
+
     return prisma.task.create({
       data: {
         projectId: data.projectId,
@@ -143,11 +185,18 @@ export class TaskRepository {
         description: data.description,
         status: data.status,
         priority: data.priority,
-        assigneeId: data.assigneeId,
+        assigneeId: primaryAssigneeId,
         teamId: data.teamId,
         dueDate: data.dueDate,
         position: data.position,
         createdById: data.createdById,
+        ...(assigneeUserIds.length > 0
+          ? {
+              assignees: {
+                create: assigneeUserIds.map((userId) => ({ userId })),
+              },
+            }
+          : {}),
       },
       include: taskIncludes,
     });
@@ -164,12 +213,19 @@ export class TaskRepository {
   }
 
   async findPaginatedTasks(projectId: string, filter: FindTasksFilter) {
-    const where = {
+    const where: Prisma.TaskWhereInput = {
       projectId,
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.priority ? { priority: filter.priority } : {}),
-      ...(filter.assigneeId ? { assigneeId: filter.assigneeId } : {}),
       ...(filter.teamId ? { teamId: filter.teamId } : {}),
+      ...(filter.assigneeId
+        ? {
+            OR: [
+              { assigneeId: filter.assigneeId },
+              { assignees: { some: { userId: filter.assigneeId } } },
+            ],
+          }
+        : {}),
       ...(filter.search
         ? {
             OR: [
@@ -197,13 +253,55 @@ export class TaskRepository {
   }
 
   async updateTask(projectId: string, taskId: string, data: UpdateTaskRepoData) {
-    return prisma.task.update({
-      where: {
-        id: taskId,
-        projectId,
-      },
-      data,
-      include: taskIncludes,
+    return prisma.$transaction(async (tx) => {
+      let primaryAssigneeId: string | null | undefined = undefined;
+
+      if (data.assigneeUserIds !== undefined) {
+        primaryAssigneeId = data.assigneeUserIds[0] ?? null;
+
+        await tx.taskAssignee.deleteMany({
+          where: { taskId },
+        });
+
+        if (data.assigneeUserIds.length > 0) {
+          await tx.taskAssignee.createMany({
+            data: data.assigneeUserIds.map((userId) => ({ taskId, userId })),
+          });
+        }
+      } else if (data.assigneeId !== undefined) {
+        primaryAssigneeId = data.assigneeId;
+        await tx.taskAssignee.deleteMany({
+          where: { taskId },
+        });
+        if (data.assigneeId) {
+          await tx.taskAssignee.create({
+            data: { taskId, userId: data.assigneeId },
+          });
+        }
+      }
+
+      const updateData: Prisma.TaskUncheckedUpdateInput = {
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.description !== undefined ? { description: data.description } : {}),
+        ...(data.status !== undefined ? { status: data.status } : {}),
+        ...(data.priority !== undefined ? { priority: data.priority } : {}),
+        ...(data.teamId !== undefined ? { teamId: data.teamId } : {}),
+        ...(data.dueDate !== undefined ? { dueDate: data.dueDate } : {}),
+        ...(data.position !== undefined ? { position: data.position } : {}),
+      };
+
+      if (primaryAssigneeId !== undefined) {
+        updateData.assigneeId = primaryAssigneeId;
+      }
+
+      return tx.task.update({
+        where: {
+          id: taskId,
+          projectId,
+        },
+        data: updateData,
+        include: taskIncludes,
+      });
     });
   }
 

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { edgeController } from './edge.controller.js';
-import { authenticate } from '../../middlewares/auth.middleware.js';
+import { requirePlatformAdmin } from '../../middlewares/authorization.middleware.js';
 
 const router = Router();
 
@@ -10,7 +10,7 @@ router.get('/edge-status', edgeController.getStatus);
 // Turnstile verification endpoint
 router.post('/turnstile/verify', edgeController.verifyTurnstile);
 
-// Purge edge cache (Requires authenticated user / admin)
-router.post('/edge-cache/purge', authenticate, edgeController.purgeCache);
+// Purge edge cache (Requires platform / system administrative authorization)
+router.post('/edge-cache/purge', requirePlatformAdmin, edgeController.purgeCache);
 
 export { router as edgeRouter };

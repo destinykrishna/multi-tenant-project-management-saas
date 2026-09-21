@@ -1,12 +1,22 @@
 import { z } from 'zod';
 import { ALL_ROLES, OrganizationRole } from '../../../constants/roles.js';
-import { organizationService, type OrganizationService } from '../../organizations/organization.service.js';
+import {
+  organizationService,
+  type OrganizationService,
+} from '../../organizations/organization.service.js';
 import type { AiRequestContext } from '../ai.types.js';
 import type { AgentTool, ToolResult } from './tool.interface.js';
 
 export const searchMembersSchema = z.object({
   search: z.string().max(100).optional(),
-  role: z.enum([OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER, OrganizationRole.VIEWER]).optional(),
+  role: z
+    .enum([
+      OrganizationRole.OWNER,
+      OrganizationRole.ADMIN,
+      OrganizationRole.MEMBER,
+      OrganizationRole.VIEWER,
+    ])
+    .optional(),
 });
 
 export type SearchMembersInput = z.infer<typeof searchMembersSchema>;
@@ -22,7 +32,8 @@ export interface SanitizedMemberSummary {
 
 export class SearchMembersTool implements AgentTool<SearchMembersInput, SanitizedMemberSummary[]> {
   readonly name = 'searchMembers';
-  readonly description = 'List and filter active members and their roles within the current organization.';
+  readonly description =
+    'List and filter active members and their roles within the current organization.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -63,8 +74,7 @@ export class SearchMembersTool implements AgentTool<SearchMembersInput, Sanitize
         const query = input.search.toLowerCase();
         filtered = filtered.filter(
           (m) =>
-            m.user.name.toLowerCase().includes(query) ||
-            m.user.email.toLowerCase().includes(query),
+            m.user.name.toLowerCase().includes(query) || m.user.email.toLowerCase().includes(query),
         );
       }
 

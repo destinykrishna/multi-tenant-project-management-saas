@@ -77,8 +77,10 @@ export class MeetingService {
     }
 
     // 2. Validate attendee tenancy and permissions
-    const { userIds: validatedAttendeeIds, emails: attendeeEmails } =
-      await this.validateAttendees(organizationId, input.attendeeUserIds);
+    const { userIds: validatedAttendeeIds, emails: attendeeEmails } = await this.validateAttendees(
+      organizationId,
+      input.attendeeUserIds,
+    );
 
     const startTime = new Date(input.startTime);
     const endTime = new Date(input.endTime);
@@ -177,7 +179,6 @@ export class MeetingService {
 
     return meeting;
   }
-
 
   async getMeetings(
     organizationId: string,

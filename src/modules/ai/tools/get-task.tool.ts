@@ -37,7 +37,8 @@ export interface SanitizedTaskDetails {
 
 export class GetTaskTool implements AgentTool<GetTaskInput, SanitizedTaskDetails> {
   readonly name = 'getTask';
-  readonly description = 'Get detailed information about a specific task by its ID within a project.';
+  readonly description =
+    'Get detailed information about a specific task by its ID within a project.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -49,7 +50,10 @@ export class GetTaskTool implements AgentTool<GetTaskInput, SanitizedTaskDetails
     parameters: {
       type: 'object' as const,
       properties: {
-        projectId: { type: 'string', description: 'The unique UUID of the project the task belongs to' },
+        projectId: {
+          type: 'string',
+          description: 'The unique UUID of the project the task belongs to',
+        },
         taskId: { type: 'string', description: 'The unique UUID of the task' },
       },
       required: ['projectId', 'taskId'],

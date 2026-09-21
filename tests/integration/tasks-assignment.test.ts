@@ -3,8 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { app } from '../../src/app.js';
 import { prisma, disconnectDatabase } from '../../src/config/database.js';
 import { generateAccessToken } from '../../src/utils/jwt.js';
+import { emailService } from '../../src/config/email.js';
 
 describe('Task Assignment & Teams Integration Tests', () => {
+  let queueEmailSpy: jest.SpyInstance;
+
   let ownerOrg1: { id: string; email: string; token: string };
   let adminOrg1: { id: string; email: string; token: string };
   let memberOrg1: { id: string; email: string; token: string };
@@ -236,6 +239,14 @@ describe('Task Assignment & Teams Integration Tests', () => {
     await disconnectDatabase();
   });
 
+  beforeEach(() => {
+    queueEmailSpy = jest.spyOn(emailService, 'queueEmail').mockResolvedValue({} as any);
+  });
+
+  afterEach(() => {
+    queueEmailSpy?.mockRestore();
+  });
+
   // ==========================================
   // SECTION 1: Teams API
   // ==========================================
@@ -417,6 +428,62 @@ describe('Task Assignment & Teams Integration Tests', () => {
       expect(res.body.error.code).toBe('INVALID_ASSIGNEE');
     });
 
+    it('should create a task with multiple individual member assignees and email each newly assigned member', async () => {
+      const res = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          title: 'Multi-Member Assigned Task',
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.assignees).toHaveLength(2);
+      const returnedIds = res.body.data.assignees.map((a: any) => a.userId);
+      expect(returnedIds).toContain(memberOrg1.id);
+      expect(returnedIds).toContain(member2Org1.id);
+
+      // Verify email notifications sent only to the newly assigned members
+      expect(queueEmailSpy).toHaveBeenCalledTimes(2);
+      const emailCalls = queueEmailSpy.mock.calls.map(([arg]) => arg);
+      const recipients = emailCalls.map((c) => c.to);
+      expect(recipients).toContain(memberOrg1.email);
+      expect(recipients).toContain(member2Org1.email);
+    });
+
+    it('should deduplicate duplicate assignee IDs and send only 1 email per member', async () => {
+      const res = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          title: 'Duplicate Assignee IDs Task',
+          assigneeUserIds: [memberOrg1.id, memberOrg1.id, memberOrg1.id],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.assignees).toHaveLength(1);
+      expect(res.body.data.assignees[0].userId).toBe(memberOrg1.id);
+
+      expect(queueEmailSpy).toHaveBeenCalledTimes(1);
+      expect(queueEmailSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ to: memberOrg1.email }),
+      );
+    });
+
+    it('SECURITY: should reject cross-tenant user in assigneeUserIds (400) and send zero emails', async () => {
+      const res = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          title: 'Cross-Tenant Multi-Assignee Attack',
+          assigneeUserIds: [memberOrg1.id, memberOrg2.id],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_ASSIGNEE');
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
     it('SECURITY: should reject cross-tenant team attack (400)', async () => {
       const res = await request(app)
         .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks`)
@@ -445,9 +512,79 @@ describe('Task Assignment & Teams Integration Tests', () => {
           createdById: ownerOrg1.id,
           assigneeId: memberOrg1.id,
           teamId: team1Org1Id,
+          assignees: {
+            create: [{ userId: memberOrg1.id }],
+          },
         },
       });
       testTaskId = task.id;
+    });
+
+    it('should add a newly assigned member and send email ONLY to the newly added member', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.assignees).toHaveLength(2);
+
+      // Email MUST be sent only to member2Org1, not to already-assigned memberOrg1
+      expect(queueEmailSpy).toHaveBeenCalledTimes(1);
+      expect(queueEmailSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ to: member2Org1.email }),
+      );
+    });
+
+    it('should remove an assignee and send NO emails', async () => {
+      await prisma.taskAssignee.create({
+        data: { taskId: testTaskId, userId: member2Org1.id },
+      });
+
+      queueEmailSpy.mockClear();
+
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.assignees).toHaveLength(1);
+      expect(res.body.data.assignees[0].userId).toBe(memberOrg1.id);
+
+      // ZERO emails sent on removal
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
+    it('should allow clearing all assignees with empty array assigneeUserIds: []', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.assignees).toHaveLength(0);
+      expect(res.body.data.assigneeId).toBeNull();
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
+    it('SECURITY: should reject updating with cross-tenant user in assigneeUserIds (400) and send no email', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, memberOrg2.id],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_ASSIGNEE');
+      expect(queueEmailSpy).not.toHaveBeenCalled();
     });
 
     it('should reassign task to a different team and member', async () => {
@@ -542,6 +679,30 @@ describe('Task Assignment & Teams Integration Tests', () => {
 
       expect(res.status).toBe(403);
     });
+
+    it('CONCURRENCY: should handle concurrent assignment updates cleanly without duplicate key violations', async () => {
+      const p1 = request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({ assigneeUserIds: [memberOrg1.id] });
+
+      const p2 = request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${testTaskId}`)
+        .set('Authorization', `Bearer ${adminOrg1.token}`)
+        .send({ assigneeUserIds: [member2Org1.id] });
+
+      const [res1, res2] = await Promise.all([p1, p2]);
+      expect([200]).toContain(res1.status);
+      expect([200]).toContain(res2.status);
+
+      // Verify task still has valid assignees and no orphaned state
+      const finalTask = await prisma.task.findUnique({
+        where: { id: testTaskId },
+        include: { assignees: true },
+      });
+      expect(finalTask).not.toBeNull();
+      expect(finalTask!.assignees.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   // ==========================================
@@ -595,7 +756,10 @@ describe('Task Assignment & Teams Integration Tests', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.items.length).toBeGreaterThanOrEqual(1);
       res.body.data.items.forEach((task: any) => {
-        expect(task.assigneeId).toBe(member2Org1.id);
+        const isAssigned =
+          task.assigneeId === member2Org1.id ||
+          task.assignees?.some((a: any) => a.userId === member2Org1.id);
+        expect(isAssigned).toBe(true);
       });
     });
 
@@ -611,4 +775,141 @@ describe('Task Assignment & Teams Integration Tests', () => {
       expect(res.body.data.assignee.name).toBe('Task Member Org1');
     });
   });
+
+  // ==========================================
+  // SECTION 5: Task Assignment Email Notifications (Focused Tests)
+  // ==========================================
+  describe('Task Assignment Email Notifications (Focused Tests)', () => {
+    let notifyTaskId: string;
+
+    beforeEach(async () => {
+      const task = await prisma.task.create({
+        data: {
+          projectId: project1Id,
+          title: 'Notification Flow Task',
+          createdById: ownerOrg1.id,
+          assigneeId: memberOrg1.id,
+          assignees: {
+            create: [{ userId: memberOrg1.id }],
+          },
+        },
+      });
+      notifyTaskId = task.id;
+      queueEmailSpy.mockClear();
+    });
+
+    it('newly assigned user receives notification job', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${notifyTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(200);
+      expect(queueEmailSpy).toHaveBeenCalledTimes(1);
+      expect(queueEmailSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: member2Org1.email,
+          userId: member2Org1.id,
+          subject: expect.stringContaining('Notification Flow Task'),
+        }),
+      );
+    });
+
+    it('existing assignee does not receive duplicate notification', async () => {
+      // Both memberOrg1 and member2Org1 are already assigned
+      await prisma.taskAssignee.create({
+        data: { taskId: notifyTaskId, userId: member2Org1.id },
+      });
+      queueEmailSpy.mockClear();
+
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${notifyTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(200);
+      // Zero emails because no new assignees were added
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
+    it('removed assignee receives no notification', async () => {
+      // Remove memberOrg1 by passing empty list or removing them
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${notifyTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [],
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.assignees).toHaveLength(0);
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
+    it('multiple newly assigned users are handled', async () => {
+      const res = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          title: 'Multi Assignee Notification Task',
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.assignees).toHaveLength(2);
+      expect(queueEmailSpy).toHaveBeenCalledTimes(2);
+
+      const calledEmails = queueEmailSpy.mock.calls.map(([arg]) => arg.to);
+      expect(calledEmails).toContain(memberOrg1.email);
+      expect(calledEmails).toContain(member2Org1.email);
+    });
+
+    it('cross-tenant assignment remains rejected', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${notifyTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, memberOrg2.id],
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('INVALID_ASSIGNEE');
+      expect(queueEmailSpy).not.toHaveBeenCalled();
+    });
+
+    it('email payload does not contain tokens, passwords, or secrets', async () => {
+      const res = await request(app)
+        .patch(`/api/v1/organizations/${org1Id}/projects/${project1Id}/tasks/${notifyTaskId}`)
+        .set('Authorization', `Bearer ${ownerOrg1.token}`)
+        .send({
+          assigneeUserIds: [memberOrg1.id, member2Org1.id],
+        });
+
+      expect(res.status).toBe(200);
+      expect(queueEmailSpy).toHaveBeenCalledTimes(1);
+
+      const payload = queueEmailSpy.mock.calls[0][0];
+      const serialized = JSON.stringify(payload).toLowerCase();
+
+      expect(serialized).not.toContain('password');
+      expect(serialized).not.toContain('secret');
+      expect(serialized).not.toContain('token');
+      expect(serialized).not.toContain('jwt');
+      expect(serialized).not.toContain('hash');
+      expect(payload).toEqual(
+        expect.objectContaining({
+          to: member2Org1.email,
+          userId: member2Org1.id,
+          subject: expect.any(String),
+          text: expect.any(String),
+          html: expect.any(String),
+        }),
+      );
+    });
+  });
 });
+

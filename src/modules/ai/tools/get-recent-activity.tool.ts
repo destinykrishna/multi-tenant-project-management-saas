@@ -43,7 +43,10 @@ export interface SanitizedActivityLog {
   };
 }
 
-export class GetRecentActivityTool implements AgentTool<GetRecentActivityInput, SanitizedActivityLog[]> {
+export class GetRecentActivityTool implements AgentTool<
+  GetRecentActivityInput,
+  SanitizedActivityLog[]
+> {
   readonly name = 'getRecentActivity';
   readonly description = 'Get recent audit trail and activity history within the organization.';
   readonly requiredRoles = ALL_ROLES;
@@ -63,7 +66,10 @@ export class GetRecentActivityTool implements AgentTool<GetRecentActivityInput, 
           description: 'Filter by affected entity type',
         },
         action: { type: 'string', description: 'Filter by specific action performed' },
-        limit: { type: 'number', description: 'Maximum number of activity events to return (max 20)' },
+        limit: {
+          type: 'number',
+          description: 'Maximum number of activity events to return (max 20)',
+        },
       },
     },
   };
@@ -97,7 +103,8 @@ export class GetRecentActivityTool implements AgentTool<GetRecentActivityInput, 
         sourceCount: sanitized.length,
       };
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to retrieve recent activity';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to retrieve recent activity';
       return {
         success: false,
         error: errorMessage,

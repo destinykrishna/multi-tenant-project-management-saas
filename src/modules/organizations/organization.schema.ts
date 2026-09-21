@@ -68,3 +68,10 @@ export const updateMemberRoleSchema = z.object({
 });
 
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
+
+export const organizationInvitationParamSchema = z.object({
+  id: z.uuid('Invalid organization ID format'),
+  invitationId: z.uuid('Invalid invitation ID format'),
+});
+
+export type OrganizationInvitationParam = z.infer<typeof organizationInvitationParamSchema>;

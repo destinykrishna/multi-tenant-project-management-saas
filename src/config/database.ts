@@ -82,9 +82,18 @@ export async function disconnectDatabase(): Promise<void> {
 }
 
 /**
- * Executes a database operation within a strict tenant isolation context.
- * Sets the PostgreSQL session variable `app.current_org_id`, activating
- * native database Row-Level Security (RLS) enforcement.
+ * Executes a database operation within a tenant-scoped transaction context.
+ * Sets the transaction-local PostgreSQL session variable `app.current_org_id` using `SET LOCAL`.
+ *
+ * ARCHITECTURAL NOTE ON ROW-LEVEL SECURITY (RLS):
+ * 1. The application's primary tenant-isolation boundary is enforced at the APPLICATION LAYER
+ *    via Express RBAC middleware (`authorizeOrgRole`) and explicit tenant-scoping across all Prisma queries
+ *    (e.g., `where: { organizationId }`).
+ * 2. Database-level RLS policies in PostgreSQL currently serve as defense-in-depth. In the current deployment,
+ *    the application database connection uses the default `postgres` superuser role (`rolbypassrls: true`),
+ *    which PostgreSQL structurally exempts from RLS under all circumstances (even with FORCE ROW LEVEL SECURITY).
+ * 3. The use of `SET LOCAL` within `prisma.$transaction` guarantees that `app.current_org_id` is automatically
+ *    reset at the end of the transaction and cannot leak across pooled connections in `dbPool`.
  */
 export async function withTenantContext<T>(
   organizationId: string,
@@ -101,4 +110,3 @@ export async function withTenantContext<T>(
     return fn(tx as unknown as PrismaClient);
   });
 }
-

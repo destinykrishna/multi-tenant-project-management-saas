@@ -52,8 +52,13 @@ export type UpdateTaskToolInput = z.infer<typeof updateTaskToolSchema>;
 
 export class UpdateTaskTool implements AgentTool<UpdateTaskToolInput, SanitizedTaskMutationResult> {
   readonly name = 'updateTask';
-  readonly description = 'Update an existing task status, priority, title, description, or due date.';
-  readonly requiredRoles = [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER];
+  readonly description =
+    'Update an existing task status, priority, title, description, or due date.';
+  readonly requiredRoles = [
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  ];
   readonly riskLevel = 'WRITE' as const;
   readonly isMutation = true;
   readonly requiresConfirmation = false;
@@ -66,9 +71,15 @@ export class UpdateTaskTool implements AgentTool<UpdateTaskToolInput, SanitizedT
       type: 'object' as const,
       properties: {
         taskId: { type: 'string', description: 'The unique UUID of the task to update' },
-        projectId: { type: 'string', description: 'The UUID of the project the task belongs to (optional)' },
+        projectId: {
+          type: 'string',
+          description: 'The UUID of the project the task belongs to (optional)',
+        },
         title: { type: 'string', description: 'New title for the task' },
-        description: { type: 'string', description: 'New description for the task (or null to clear)' },
+        description: {
+          type: 'string',
+          description: 'New description for the task (or null to clear)',
+        },
         status: {
           type: 'string',
           enum: ['TODO', 'IN_PROGRESS', 'IN_REVIEW', 'DONE', 'CANCELLED'],
@@ -79,7 +90,10 @@ export class UpdateTaskTool implements AgentTool<UpdateTaskToolInput, SanitizedT
           enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
           description: 'New priority level',
         },
-        dueDate: { type: 'string', description: 'ISO 8601 formatted due date string (or null to clear)' },
+        dueDate: {
+          type: 'string',
+          description: 'ISO 8601 formatted due date string (or null to clear)',
+        },
       },
       required: ['taskId'],
     },

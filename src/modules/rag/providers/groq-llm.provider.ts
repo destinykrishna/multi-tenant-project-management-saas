@@ -61,9 +61,12 @@ export class GroqLlmProvider implements ILlmProvider {
 
         const errorText = await response.text();
         try {
-          const parsed = JSON.parse(errorText);
-          if (parsed?.error?.message) {
-            lastError = parsed.error.message;
+          const json: unknown = JSON.parse(errorText);
+          if (json && typeof json === 'object' && 'error' in json) {
+            const errPayload = (json as { error?: { message?: unknown } }).error;
+            if (errPayload && typeof errPayload.message === 'string') {
+              lastError = errPayload.message;
+            }
           }
         } catch {
           lastError = errorText || lastError;
@@ -78,7 +81,10 @@ export class GroqLlmProvider implements ILlmProvider {
       }
     }
 
-    logger.error({ lastError, preferredModel: this.preferredModel }, 'All Groq RAG LLM attempts failed');
+    logger.error(
+      { lastError, preferredModel: this.preferredModel },
+      'All Groq RAG LLM attempts failed',
+    );
     throw new InternalError(`Groq LLM error: ${lastError}`);
   }
 }

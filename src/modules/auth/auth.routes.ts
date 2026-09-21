@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { validateRequest } from '../../middlewares/validation.middleware.js';
 import { authRateLimiter } from '../../middlewares/rate-limit.middleware.js';
-import { authenticate } from '../../middlewares/auth.middleware.js';
+import { authenticate, optionalAuthenticate } from '../../middlewares/auth.middleware.js';
 import {
   registerSchema,
   loginSchema,
@@ -26,6 +26,7 @@ router.get(
 router.post(
   '/invitations/accept',
   authRateLimiter,
+  optionalAuthenticate,
   validateRequest({ body: acceptInvitationSchema }),
   authController.acceptInvitation,
 );
@@ -82,4 +83,3 @@ router.post(
 );
 
 export const authRouter = router;
-

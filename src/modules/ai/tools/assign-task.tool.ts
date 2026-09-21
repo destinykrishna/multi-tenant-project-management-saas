@@ -16,7 +16,11 @@ export type AssignTaskToolInput = z.infer<typeof assignTaskToolSchema>;
 export class AssignTaskTool implements AgentTool<AssignTaskToolInput, SanitizedTaskMutationResult> {
   readonly name = 'assignTask';
   readonly description = 'Assign an existing task to an organization member or unassign it (null).';
-  readonly requiredRoles = [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER];
+  readonly requiredRoles = [
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  ];
   readonly riskLevel = 'WRITE' as const;
   readonly isMutation = true;
   readonly requiresConfirmation = false;
@@ -29,7 +33,10 @@ export class AssignTaskTool implements AgentTool<AssignTaskToolInput, SanitizedT
       type: 'object' as const,
       properties: {
         taskId: { type: 'string', description: 'The unique UUID of the task to assign' },
-        projectId: { type: 'string', description: 'The UUID of the project the task belongs to (optional)' },
+        projectId: {
+          type: 'string',
+          description: 'The UUID of the project the task belongs to (optional)',
+        },
         assigneeId: {
           type: 'string',
           description: 'The UUID of the user to assign the task to (or null to unassign)',

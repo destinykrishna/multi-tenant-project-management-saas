@@ -36,8 +36,13 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
         `Unexpected error: ${err.message}`,
       );
     }
-  } else if (err.name === 'PrismaClientKnownRequestError' || (err as any).code?.startsWith('P')) {
-    const prismaCode = (err as any).code;
+  } else if (
+    err.name === 'PrismaClientKnownRequestError' ||
+    ('code' in err &&
+      typeof (err as unknown as { code: unknown }).code === 'string' &&
+      (err as unknown as { code: string }).code.startsWith('P'))
+  ) {
+    const prismaCode = (err as unknown as { code: string }).code;
     if (prismaCode === 'P2025') {
       statusCode = 404;
       code = 'NOT_FOUND';
@@ -51,7 +56,10 @@ export function errorHandler(err: Error, req: Request, res: Response, _next: Nex
       code = 'BAD_REQUEST';
       message = 'Related resource not found or reference constraint violated';
     }
-    logger.warn({ err, requestId: req.id, statusCode, code, prismaCode }, `Database error: ${message}`);
+    logger.warn(
+      { err, requestId: req.id, statusCode, code, prismaCode },
+      `Database error: ${message}`,
+    );
   } else {
     // Unknown/unexpected errors
     logger.error({ err, requestId: req.id, stack: err.stack }, `Unhandled error: ${err.message}`);

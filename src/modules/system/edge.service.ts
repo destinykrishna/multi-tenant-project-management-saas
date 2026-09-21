@@ -29,7 +29,13 @@ export interface EdgeTelemetry {
 }
 
 export class EdgeService {
-  getEdgeStatus(edgeMeta?: { rayId: string; clientIp: string; country: string; isCloudflare: boolean; proxyHop: string }): EdgeTelemetry {
+  getEdgeStatus(edgeMeta?: {
+    rayId: string;
+    clientIp: string;
+    country: string;
+    isCloudflare: boolean;
+    proxyHop: string;
+  }): EdgeTelemetry {
     return {
       cloudflare: {
         enabled: env.CLOUDFLARE_ENABLED,
@@ -71,7 +77,7 @@ export class EdgeService {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ purge_everything: true }),
-          }
+          },
         );
         const data = (await response.json()) as { success?: boolean };
         if (data.success) {
@@ -88,7 +94,8 @@ export class EdgeService {
 
     return {
       success: true,
-      message: 'Cloudflare Edge Cache purge signal executed (Global Anycast cache invalidation completed)',
+      message:
+        'Cloudflare Edge Cache purge signal executed (Global Anycast cache invalidation completed)',
       timestamp: new Date().toISOString(),
     };
   }

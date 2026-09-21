@@ -38,13 +38,19 @@ export const changePasswordSchema = z.object({
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
 export const verifyTotpSchema = z.object({
-  code: z.string().length(6, 'TOTP code must be exactly 6 digits').regex(/^\d+$/, 'Code must be numeric'),
+  code: z
+    .string()
+    .length(6, 'TOTP code must be exactly 6 digits')
+    .regex(/^\d+$/, 'Code must be numeric'),
 });
 export type VerifyTotpInput = z.infer<typeof verifyTotpSchema>;
 
 export const mfaLoginSchema = z.object({
   mfaToken: z.string().min(1, 'MFA token is required'),
-  code: z.string().length(6, 'TOTP code must be exactly 6 digits').regex(/^\d+$/, 'Code must be numeric'),
+  code: z
+    .string()
+    .length(6, 'TOTP code must be exactly 6 digits')
+    .regex(/^\d+$/, 'Code must be numeric'),
 });
 export type MfaLoginInput = z.infer<typeof mfaLoginSchema>;
 
@@ -62,4 +68,3 @@ export const acceptInvitationSchema = z.object({
     .optional(),
 });
 export type AcceptInvitationInput = z.infer<typeof acceptInvitationSchema>;
-

@@ -74,6 +74,9 @@ const envSchema = z.object({
   CLOUDFLARE_TURNSTILE_SECRET_KEY: z.string().default(''),
   CLOUDFLARE_ORIGIN_PULL_SECRET: z.string().default(''),
 
+  // Platform Administration & Infrastructure Operations
+  PLATFORM_ADMIN_SECRET: z.string().default(''),
+
   // Reverse Proxy & Nginx
   TRUST_PROXY: z
     .string()

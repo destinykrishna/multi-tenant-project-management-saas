@@ -5,9 +5,7 @@ import type { AiRequestContext } from '../ai.types.js';
 import type { AgentTool, ToolResult } from './tool.interface.js';
 
 export const sendEmailSchema = z.object({
-  to: z
-    .email({ message: 'Recipient email address must be a valid email' })
-    .max(254),
+  to: z.email({ message: 'Recipient email address must be a valid email' }).max(254),
   subject: z.string().trim().min(1, 'Email subject is required').max(200),
   body: z
     .string()
@@ -27,10 +25,14 @@ export interface SanitizedEmailSendResult {
 export class SendEmailTool implements AgentTool<SendEmailInput, SanitizedEmailSendResult> {
   readonly name = 'sendEmail';
   readonly description =
-    'Send an email from the authenticated user\'s connected Google/Gmail account. '
-    + 'Only use when the user explicitly requests sending an email. '
-    + 'Requires the caller\'s Google account to be connected and have Gmail send permissions.';
-  readonly requiredRoles = [OrganizationRole.OWNER, OrganizationRole.ADMIN, OrganizationRole.MEMBER];
+    "Send an email from the authenticated user's connected Google/Gmail account. " +
+    'Only use when the user explicitly requests sending an email. ' +
+    "Requires the caller's Google account to be connected and have Gmail send permissions.";
+  readonly requiredRoles = [
+    OrganizationRole.OWNER,
+    OrganizationRole.ADMIN,
+    OrganizationRole.MEMBER,
+  ];
   readonly riskLevel = 'EXTERNAL_SIDE_EFFECT' as const;
   readonly isMutation = true;
   readonly requiresConfirmation = false;
@@ -39,8 +41,8 @@ export class SendEmailTool implements AgentTool<SendEmailInput, SanitizedEmailSe
   readonly toolDefinition = {
     name: 'sendEmail',
     description:
-      'Send an email from the authenticated user\'s connected Gmail account. '
-      + 'Only use when the user explicitly requests sending an email.',
+      "Send an email from the authenticated user's connected Gmail account. " +
+      'Only use when the user explicitly requests sending an email.',
     parameters: {
       type: 'object' as const,
       properties: {

@@ -109,7 +109,9 @@ export class OrganizationController {
 
       const result = await this.service.addMember(organizationId, input, invitedById);
 
-      const message = result.isPending ? 'Invitation sent successfully' : 'Member added successfully';
+      const message = result.isPending
+        ? 'Invitation sent successfully'
+        : 'Member added successfully';
       sendSuccess(res, result, 201, message);
     } catch (error) {
       next(error);
@@ -121,8 +123,14 @@ export class OrganizationController {
       const organizationId = req.params['id'] as string;
       const targetUserId = req.params['userId'] as string;
       const input = req.body as UpdateMemberRoleInput;
+      const callerRole = req.membership?.role;
 
-      const result = await this.service.updateMemberRole(organizationId, targetUserId, input);
+      const result = await this.service.updateMemberRole(
+        organizationId,
+        targetUserId,
+        input,
+        callerRole,
+      );
 
       sendSuccess(res, result, 200, 'Member role updated successfully');
     } catch (error) {
@@ -134,10 +142,46 @@ export class OrganizationController {
     try {
       const organizationId = req.params['id'] as string;
       const targetUserId = req.params['userId'] as string;
+      const callerRole = req.membership?.role;
 
-      await this.service.removeMember(organizationId, targetUserId);
+      await this.service.removeMember(organizationId, targetUserId, callerRole);
 
       sendSuccess(res, null, 200, 'Member removed successfully');
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  listInvitations = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const organizationId = req.params['id'] as string;
+      const result = await this.service.listInvitations(organizationId);
+
+      sendSuccess(res, result, 200, 'Pending invitations retrieved successfully');
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resendInvitation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const organizationId = req.params['id'] as string;
+      const invitationId = req.params['invitationId'] as string;
+      const result = await this.service.resendInvitation(organizationId, invitationId);
+
+      sendSuccess(res, result, 200, result.message);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  revokeInvitation = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const organizationId = req.params['id'] as string;
+      const invitationId = req.params['invitationId'] as string;
+      const result = await this.service.revokeInvitation(organizationId, invitationId);
+
+      sendSuccess(res, result, 200, result.message);
     } catch (error) {
       next(error);
     }

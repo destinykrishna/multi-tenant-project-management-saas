@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import { prisma } from '../config/database.js';
+import { env } from '../config/env.js';
 import { OrganizationRole } from '../constants/roles.js';
 import { BadRequestError, ForbiddenError, UnauthorizedError } from '../utils/errors.js';
 
@@ -108,4 +110,57 @@ export function requireOrgMember(options: AuthorizeOptions = {}) {
     ],
     options,
   );
+}
+
+/**
+ * Authorizes platform / infrastructure operations (e.g. edge cache purging).
+ * Rejects normal authenticated users, organization OWNER/ADMIN/MEMBER/VIEWER roles,
+ * and only permits callers authorized with the platform administrative secret.
+ */
+export function requirePlatformAdmin(req: Request, _res: Response, next: NextFunction): void {
+  const configuredSecret =
+    env.PLATFORM_ADMIN_SECRET || (process.env['NODE_ENV'] === 'test' ? 'test-platform-secret' : '');
+
+  if (!configuredSecret) {
+    next(
+      new ForbiddenError(
+        'Platform administration is not configured on this server',
+        'PLATFORM_AUTH_NOT_CONFIGURED',
+      ),
+    );
+    return;
+  }
+
+  const headerVal =
+    req.headers['x-platform-secret'] ||
+    req.headers['x-system-secret'] ||
+    req.headers['x-platform-admin-secret'];
+
+  const rawHeaderSecret = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+
+  const authHeader = req.headers.authorization;
+  const bearerSecret = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+
+  const candidateSecret =
+    rawHeaderSecret || (bearerSecret === configuredSecret ? bearerSecret : undefined);
+
+  if (!candidateSecret) {
+    next(
+      new ForbiddenError(
+        'Platform administrative authorization required',
+        'PLATFORM_ADMIN_REQUIRED',
+      ),
+    );
+    return;
+  }
+
+  const bufA = Buffer.from(candidateSecret);
+  const bufB = Buffer.from(configuredSecret);
+
+  if (bufA.length !== bufB.length || !timingSafeEqual(bufA, bufB)) {
+    next(new ForbiddenError('Invalid platform administrative secret', 'INVALID_PLATFORM_SECRET'));
+    return;
+  }
+
+  next();
 }

@@ -331,9 +331,12 @@ export class GoogleCalendarProvider implements ICalendarProvider {
     let googleMessage = '';
     if (errorText) {
       try {
-        const parsed = JSON.parse(errorText);
-        if (parsed?.error?.message) {
-          googleMessage = parsed.error.message;
+        const json: unknown = JSON.parse(errorText);
+        if (json && typeof json === 'object' && 'error' in json) {
+          const errPayload = (json as { error?: { message?: unknown } }).error;
+          if (errPayload && typeof errPayload.message === 'string') {
+            googleMessage = errPayload.message;
+          }
         }
       } catch {
         // Ignore JSON parse error
@@ -359,7 +362,11 @@ export class GoogleCalendarProvider implements ICalendarProvider {
       );
     }
     if (status === 429) {
-      throw new AppError(googleMessage || 'Google Calendar rate limit exceeded', 429, 'GOOGLE_CALENDAR_RATE_LIMIT');
+      throw new AppError(
+        googleMessage || 'Google Calendar rate limit exceeded',
+        429,
+        'GOOGLE_CALENDAR_RATE_LIMIT',
+      );
     }
     throw new BadRequestError(
       googleMessage || `Google Calendar API ${operation} failed with HTTP ${status}`,

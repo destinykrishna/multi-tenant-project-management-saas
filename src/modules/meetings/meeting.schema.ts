@@ -9,7 +9,7 @@ export const createMeetingSchema = z
     location: z.string().max(300).optional(),
     projectId: z.uuid().optional(),
     taskId: z.uuid().optional(),
-    attendeeUserIds: z.array(z.string().uuid('Invalid attendee user ID format')).optional(),
+    attendeeUserIds: z.array(z.uuid('Invalid attendee user ID format')).optional(),
     syncWithGoogle: z.boolean().optional().default(false),
     createGoogleMeet: z.boolean().optional().default(false),
   })
@@ -29,7 +29,7 @@ export const updateMeetingSchema = z
     location: z.string().max(300).optional().nullable(),
     projectId: z.uuid().optional().nullable(),
     taskId: z.uuid().optional().nullable(),
-    attendeeUserIds: z.array(z.string().uuid('Invalid attendee user ID format')).optional(),
+    attendeeUserIds: z.array(z.uuid('Invalid attendee user ID format')).optional(),
     syncWithGoogle: z.boolean().optional(),
     createGoogleMeet: z.boolean().optional(),
   })
@@ -47,7 +47,6 @@ export const updateMeetingSchema = z
   );
 
 export type UpdateMeetingSchemaInput = z.infer<typeof updateMeetingSchema>;
-
 
 export const listMeetingsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),

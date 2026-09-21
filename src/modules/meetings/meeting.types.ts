@@ -69,4 +69,3 @@ export interface MeetingResponse {
   } | null;
   attendees?: MeetingAttendeeResponse[];
 }
-

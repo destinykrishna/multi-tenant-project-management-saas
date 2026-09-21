@@ -1,6 +1,6 @@
 /**
- * Computes the cosine similarity between two numeric vectors.
- * Returns a value in the range [-1, 1], where 1 represents identical direction.
+ * @deprecated Vector cosine distance computation has been migrated to native PostgreSQL
+ * pgvector (<=> operator) in rag.repository.ts. In-memory JavaScript calculation is deprecated.
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) {

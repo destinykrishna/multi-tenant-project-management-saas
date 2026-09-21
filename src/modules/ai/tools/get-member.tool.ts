@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { ALL_ROLES } from '../../../constants/roles.js';
-import { organizationService, type OrganizationService } from '../../organizations/organization.service.js';
+import {
+  organizationService,
+  type OrganizationService,
+} from '../../organizations/organization.service.js';
 import type { AiRequestContext } from '../ai.types.js';
 import type { AgentTool, ToolResult } from './tool.interface.js';
 
@@ -21,7 +24,8 @@ export interface SanitizedMemberDetails {
 
 export class GetMemberTool implements AgentTool<GetMemberInput, SanitizedMemberDetails> {
   readonly name = 'getMember';
-  readonly description = 'Get detailed information about a specific organization member by member ID or user ID.';
+  readonly description =
+    'Get detailed information about a specific organization member by member ID or user ID.';
   readonly requiredRoles = ALL_ROLES;
   readonly riskLevel = 'READ' as const;
   readonly requiresConfirmation = false;
@@ -29,7 +33,8 @@ export class GetMemberTool implements AgentTool<GetMemberInput, SanitizedMemberD
 
   readonly toolDefinition = {
     name: 'getMember',
-    description: 'Get detailed information about a specific organization member by member ID or user ID.',
+    description:
+      'Get detailed information about a specific organization member by member ID or user ID.',
     parameters: {
       type: 'object' as const,
       properties: {

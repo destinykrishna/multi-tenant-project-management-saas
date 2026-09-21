@@ -22,7 +22,12 @@ export class EdgeController {
       const { token } = req.body as { token: string };
       const clientIp = req.edge?.clientIp ?? req.ip ?? '127.0.0.1';
       const valid = await edgeService.verifyTurnstile(token, clientIp);
-      sendSuccess(res, { verified: valid }, 200, valid ? 'Turnstile verification passed' : 'Verification failed');
+      sendSuccess(
+        res,
+        { verified: valid },
+        200,
+        valid ? 'Turnstile verification passed' : 'Verification failed',
+      );
     } catch (error) {
       next(error);
     }

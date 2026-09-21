@@ -18,7 +18,8 @@ export function createRateLimiter(options: RateLimiterOptions) {
     windowSeconds,
     maxRequests,
     prefix = 'rl',
-    keyGenerator = (req: Request) => req.ip ?? '127.0.0.1',
+    keyGenerator = (req: Request) =>
+      req.edge?.clientIp ?? req.ip ?? req.socket.remoteAddress ?? '127.0.0.1',
     skip,
     message = 'Too many requests, please try again later',
     code = 'RATE_LIMIT_EXCEEDED',
@@ -111,7 +112,7 @@ export const authRateLimiter = createRateLimiter({
   maxRequests: process.env['NODE_ENV'] === 'test' ? 50000 : 20,
   prefix: 'auth',
   keyGenerator: (req: Request) => {
-    const ip = req.ip ?? '127.0.0.1';
+    const ip = req.edge?.clientIp ?? req.ip ?? req.socket.remoteAddress ?? '127.0.0.1';
     const email =
       typeof req.body === 'object' && req.body !== null && 'email' in req.body
         ? String((req.body as { email: unknown }).email)
@@ -134,7 +135,7 @@ export const aiRateLimiter = createRateLimiter({
     const orgId = (req.params as Record<string, string>)['organizationId'] ?? 'global';
     return `${orgId}:${userId}`;
   },
-  message: 'AI agent request rate limit exceeded. Please wait a moment before sending more queries.',
+  message:
+    'AI agent request rate limit exceeded. Please wait a moment before sending more queries.',
   code: 'AI_RATE_LIMIT_EXCEEDED',
 });
-
