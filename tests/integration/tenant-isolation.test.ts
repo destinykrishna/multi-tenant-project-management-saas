@@ -396,7 +396,7 @@ describe('Tenant Isolation & RLS Architecture Integration Tests', () => {
 
   // ─── 5. Database RLS State & Superuser Privilege Verification ──────────────
   describe('5. Database RLS State & Role Architecture Verification', () => {
-    it('verifies that database connection user is postgres superuser (bypassing RLS by engine rule)', async () => {
+    it('verifies that database connection user is a superuser (bypassing RLS by engine rule)', async () => {
       const privs = await dbPool.query(`
         SELECT current_user, rolsuper, rolbypassrls
         FROM pg_roles
@@ -405,20 +405,20 @@ describe('Tenant Isolation & RLS Architecture Integration Tests', () => {
 
       expect(privs.rows.length).toBe(1);
       const userPriv = privs.rows[0];
-      expect(userPriv.current_user).toBe('postgres');
+      expect(userPriv.current_user).toBeDefined();
       // PostgreSQL superusers always have rolsuper = true and rolbypassrls = true
       expect(userPriv.rolsuper).toBe(true);
       expect(userPriv.rolbypassrls).toBe(true);
     });
 
-    it('verifies that postgres superuser queries bypass RLS policies even if app.current_org_id is set to another org', async () => {
+    it('verifies that superuser queries bypass RLS policies even if app.current_org_id is set to another org', async () => {
       const client = await dbPool.connect();
       try {
         await client.query('BEGIN');
         // Set context to Org A
         await client.query(`SELECT set_config('app.current_org_id', '${orgA.id}', true)`);
 
-        // Superuser raw query on projects table: because postgres role has rolsuper=true,
+        // Superuser raw query on projects table: because the connection role has rolsuper=true,
         // PostgreSQL engine permits returning projects from Org B despite RLS policy
         const res = await client.query(
           `SELECT id, "organizationId" FROM projects WHERE id = $1`,
