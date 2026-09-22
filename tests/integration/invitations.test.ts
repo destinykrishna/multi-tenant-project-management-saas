@@ -669,6 +669,7 @@ describe('Organization Member Invitations Integration Tests', () => {
       // Acceptance rejects with 409 USER_ALREADY_IN_ORGANIZATION
       const acceptRes = await request(app)
         .post('/api/v1/auth/invitations/accept')
+        .set('Authorization', `Bearer ${existingCandidate.token}`)
         .send({
           token: oldTokenB,
         })

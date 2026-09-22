@@ -212,9 +212,6 @@ describe('Dashboard Module Integration Tests', () => {
         where: { id: { in: createdUserIds } },
       });
     }
-
-    await disconnectDatabase();
-    redis.disconnect();
   });
 
   describe('Authentication & Authorization', () => {

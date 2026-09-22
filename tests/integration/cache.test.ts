@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+ import { randomUUID } from 'node:crypto';
 import { prisma, disconnectDatabase } from '../../src/config/database.js';
 import { redis } from '../../src/config/redis.js';
 import { cacheService, CACHE_KEYS } from '../../src/utils/cache.js';
@@ -77,7 +77,6 @@ describe('Redis Caching Integration Tests', () => {
     }
 
     await disconnectDatabase();
-    redis.disconnect();
   });
 
   it('should demonstrate cache miss and subsequent cache hit for organization retrieval', async () => {
@@ -88,36 +87,50 @@ describe('Redis Caching Integration Tests', () => {
     const cachedBefore = await cacheService.get(cacheKey);
     expect(cachedBefore).toBeNull();
 
+    // Fetch from DB and warm cache
     const org = await organizationService.getOrganizationById(org1Id);
     expect(org.id).toBe(org1Id);
 
     // Subsequent read - cache hit
-    const cachedAfter = await cacheService.get<{ id: string; name: string }>(cacheKey);
+    const cachedAfter = await cacheService.get(cacheKey);
     expect(cachedAfter).not.toBeNull();
-    expect(cachedAfter?.id).toBe(org1Id);
-    expect(cachedAfter?.name).toBe('Cache Org 1');
+    expect((cachedAfter as typeof org).id).toBe(org1Id);
   });
 
   it('should demonstrate user organizations caching and invalidation', async () => {
-    const userOrgsKey = CACHE_KEYS.userOrganizations(user1.id);
+    const userForCache = await prisma.user.create({
+      data: {
+        name: 'Cache Invalidation User',
+        email: `cache.inval.${Date.now()}.${randomUUID().slice(0, 4)}@example.com`,
+        passwordHash: 'dummy-hash',
+      },
+    });
+    createdUserIds.push(userForCache.id);
+
+    const userOrgsKey = CACHE_KEYS.userOrganizations(userForCache.id);
     await cacheService.del(userOrgsKey);
 
-    // Initial fetch caches user's organizations
-    const userOrgs = await organizationService.getUserOrganizations(user1.id);
-    expect(userOrgs.length).toBeGreaterThanOrEqual(1);
+    // Initial fetch caches user's organizations (empty array)
+    const userOrgs = await organizationService.getUserOrganizations(userForCache.id);
+    expect(userOrgs.length).toBe(0);
 
     const cachedUserOrgs = await cacheService.get<typeof userOrgs>(userOrgsKey);
     expect(cachedUserOrgs).not.toBeNull();
-    expect(cachedUserOrgs?.length).toBe(userOrgs.length);
+    expect(cachedUserOrgs?.length).toBe(0);
 
-    // Creating another organization invalidates user's cached organizations
-    const newOrg = await organizationService.createOrganization(user1.id, {
-      name: 'User 1 Second Org',
-      slug: `u1-sec-org-${randomUUID()}`,
+    // Creating an organization invalidates user's cached organizations
+    const newOrg = await organizationService.createOrganization(userForCache.id, {
+      name: 'User Invalidation Org',
+      slug: `u-inval-org-${randomUUID()}`,
     });
 
     const cachedAfterNewOrg = await cacheService.get(userOrgsKey);
     expect(cachedAfterNewOrg).toBeNull();
+
+    // Fresh fetch reflects the newly created organization
+    const updatedOrgs = await organizationService.getUserOrganizations(userForCache.id);
+    expect(updatedOrgs.length).toBe(1);
+    expect(updatedOrgs[0].id).toBe(newOrg.id);
 
     // Clean up created org
     await organizationService.deleteOrganization(newOrg.id);

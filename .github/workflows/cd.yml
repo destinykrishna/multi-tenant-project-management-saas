@@ -75,6 +75,7 @@ jobs:
 
       - name: Push Database Schema & Run Tests
         run: |
+          PGPASSWORD=test_password psql -h localhost -U test_user -d multi_tenant_backend_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
           npx prisma db push
           npm test
 

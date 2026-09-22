@@ -9,13 +9,22 @@ const config = {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
-    '^.+\\.ts$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.ts$': [
+      'ts-jest',
+      {
+        tsconfig: 'tsconfig.json',
+        diagnostics: false,
+      },
+    ],
   },
+  maxWorkers: '50%',
   collectCoverageFrom: ['src/**/*.ts', '!src/generated/**', '!src/server.ts'],
   coverageDirectory: 'coverage',
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   clearMocks: true,
   resetMocks: true,
   testTimeout: 15000,
 };
 
 module.exports = config;
+

@@ -216,7 +216,7 @@ describe('Cleanup Jobs & Worker Integration Tests', () => {
         expect(completedResult.type).toBe('EXPIRED_SESSIONS');
         expect(completedResult.sessions).toBeDefined();
       } finally {
-        await worker.close();
+        await worker.close(true);
       }
     });
 

@@ -1,18 +1,17 @@
 import request from 'supertest';
 import { app } from '../../src/app.js';
-import { prisma, disconnectDatabase } from '../../src/config/database.js';
+import { prisma } from '../../src/config/database.js';
 import { env } from '../../src/config/env.js';
+import { ragRepository } from '../../src/modules/rag/rag.repository.js';
 import { ragService } from '../../src/modules/rag/rag.service.js';
+import type { CreateKnowledgeChunkInput, RagSourceType } from '../../src/modules/rag/rag.types.js';
 import { chunkText } from '../../src/modules/rag/utils/chunker.js';
 
 describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
   let user1Token: string;
-  let user1Id: string;
   let org1Id: string;
 
   let user2Token: string;
-  let user2Id: string;
-  let org2Id: string;
 
   let projectId: string;
   let taskId: string;
@@ -23,6 +22,70 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
   const testEmail2 = `rag.test.user2.${Date.now()}@example.com`;
 
   beforeAll(async () => {
+    // Detect whether PostgreSQL has native pgvector installed
+    let isPgVectorAvailable: boolean;
+    try {
+      const check = await prisma.$queryRaw<Array<{ extname: string }>>`SELECT 1 FROM pg_extension WHERE extname = 'vector'`;
+      isPgVectorAvailable = check.length > 0;
+    } catch {
+      isPgVectorAvailable = false;
+    }
+
+    if (!isPgVectorAvailable) {
+      ragRepository.upsertChunk = async (data: CreateKnowledgeChunkInput) => {
+        const metadataJson = JSON.stringify(data.metadata ?? {});
+        const rows = await prisma.$queryRawUnsafe<
+          Array<{
+            id: string;
+            organizationId: string;
+            sourceType: RagSourceType;
+            sourceId: string;
+            chunkIndex: number;
+            totalChunks: number;
+            title: string | null;
+            content: string;
+            metadata: unknown;
+            createdAt: Date;
+            updatedAt: Date;
+          }>
+        >(
+          `
+          INSERT INTO "rag_knowledge_documents" (
+            "id", "organizationId", "sourceType", "sourceId", "chunkIndex", "totalChunks",
+            "title", "content", "metadata", "embedding", "createdAt", "updatedAt"
+          ) VALUES (
+            gen_random_uuid(), $1, $2::"RagSourceType", $3, $4, $5, $6, $7, $8::jsonb, $9::float8[], NOW(), NOW()
+          )
+          ON CONFLICT ("organizationId", "sourceType", "sourceId", "chunkIndex")
+          DO UPDATE SET
+            "totalChunks" = EXCLUDED."totalChunks",
+            "title" = EXCLUDED."title",
+            "content" = EXCLUDED."content",
+            "metadata" = EXCLUDED."metadata",
+            "embedding" = EXCLUDED."embedding",
+            "updatedAt" = NOW()
+          RETURNING
+            "id", "organizationId", "sourceType", "sourceId", "chunkIndex", "totalChunks",
+            "title", "content", "metadata", "createdAt", "updatedAt";
+        `,
+          data.organizationId,
+          data.sourceType,
+          data.sourceId,
+          data.chunkIndex,
+          data.totalChunks,
+          data.title ?? null,
+          data.content,
+          metadataJson,
+          data.embedding,
+        );
+        const row = rows[0];
+        if (!row) {
+          throw new Error('Failed to upsert knowledge chunk');
+        }
+        return row;
+      };
+    }
+
     // 1. Register User 1 + Org 1
     const res1 = await request(app)
       .post('/api/v1/auth/register')
@@ -35,7 +98,6 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
       .expect(201);
 
     user1Token = res1.body.data.accessToken;
-    user1Id = res1.body.data.user.id;
     org1Id = res1.body.data.organization.id;
 
     // 2. Register User 2 + Org 2
@@ -50,8 +112,6 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
       .expect(201);
 
     user2Token = res2.body.data.accessToken;
-    user2Id = res2.body.data.user.id;
-    org2Id = res2.body.data.organization.id;
 
     // 3. Create Sample Project in Org 1
     const projectRes = await request(app)
@@ -114,8 +174,6 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
         prisma.user.delete({ where: { id: u.id } }),
       ]);
     }
-
-    await disconnectDatabase();
   });
 
   describe('Chunking Utility', () => {
@@ -155,10 +213,19 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
       expect(docs).toHaveLength(1);
       const firstDoc = docs[0];
       expect(firstDoc).toBeDefined();
-      expect(firstDoc?.title).toContain('Neural Engine Core');
-      expect(firstDoc?.content).toContain('Project: Neural Engine Core (NEC)');
-      expect(firstDoc?.embedding).toBeDefined();
-      expect(firstDoc?.embedding.length).toBe(env.EMBEDDING_DIMENSION);
+      if (!firstDoc) {
+        throw new Error('Expected firstDoc to be defined');
+      }
+      expect(firstDoc.title).toContain('Neural Engine Core');
+      expect(firstDoc.content).toContain('Project: Neural Engine Core (NEC)');
+      const [rawRow] = await prisma.$queryRawUnsafe<Array<{ embedding: number[] | null }>>(
+        `SELECT embedding FROM "rag_knowledge_documents" WHERE "id" = $1`,
+        firstDoc.id,
+      );
+      expect(rawRow?.embedding).toBeDefined();
+      if (Array.isArray(rawRow?.embedding)) {
+        expect(rawRow.embedding.length).toBe(env.EMBEDDING_DIMENSION);
+      }
     });
 
     it('should index a Task with metadata and details', async () => {

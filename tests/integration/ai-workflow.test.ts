@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { app } from '../../src/app.js';
-import { prisma, disconnectDatabase } from '../../src/config/database.js';
+import { prisma } from '../../src/config/database.js';
+import { hashPassword } from '../../src/utils/password.js';
+import { generateAccessToken } from '../../src/utils/jwt.js';
 import { AgentOrchestrator } from '../../src/modules/ai/agent.orchestrator.js';
 import { MockAiLlmProvider } from '../../src/modules/ai/providers/mock-llm.provider.js';
 import { toolRegistry } from '../../src/modules/ai/tools/tool-registry.js';
@@ -59,25 +61,27 @@ describe('Agentic AI — Multi-Step Workflow Layer', () => {
     ownerUserId = ownerRes.body.data.user.id;
     orgId = ownerRes.body.data.organization.id;
 
-    // Create Viewer & Add to Org 1 as VIEWER
-    const viewerRes = await request(app)
-      .post('/api/v1/auth/register')
-      .send({
+    // Create Viewer directly without an initial organization & Add to Org 1 as VIEWER
+    const passwordHash = await hashPassword('Password123!');
+    const viewerUser = await prisma.user.create({
+      data: {
         name: 'Workflow Viewer',
         email: viewerEmail,
-        password: 'Password123!',
-        organizationName: 'WF Viewer Personal Org',
-      })
-      .expect(201);
+        passwordHash,
+        isEmailVerified: true,
+      },
+    });
 
-    viewerToken = viewerRes.body.data.accessToken;
-    viewerUserId = viewerRes.body.data.user.id;
+    viewerUserId = viewerUser.id;
+    viewerToken = generateAccessToken({ userId: viewerUser.id, email: viewerUser.email });
 
-    await request(app)
-      .post(`/api/v1/organizations/${orgId}/members`)
-      .set('Authorization', `Bearer ${ownerToken}`)
-      .send({ email: viewerEmail, role: 'VIEWER' })
-      .expect(201);
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: orgId,
+        userId: viewerUserId,
+        role: 'VIEWER',
+      },
+    });
 
     // Create a project in the org
     const projRes = await request(app)
@@ -108,8 +112,6 @@ describe('Agentic AI — Multi-Step Workflow Layer', () => {
         prisma.user.delete({ where: { id: u.id } }),
       ]);
     }
-
-    await disconnectDatabase();
   });
 
   beforeEach(() => {

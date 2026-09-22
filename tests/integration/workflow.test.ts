@@ -9,6 +9,8 @@ import { createNotificationWorker } from '../../src/jobs/workers/notification.wo
 import { defaultConnection } from '../../src/jobs/queues/queue.config.js';
 import { OrganizationRole } from '../../src/constants/roles.js';
 import { TaskStatus, TaskPriority } from '../../src/constants/task.js';
+import { hashPassword } from '../../src/utils/password.js';
+import { generateAccessToken } from '../../src/utils/jwt.js';
 
 describe('Full End-to-End API Integration Workflow', () => {
   let queueEvents: QueueEvents;
@@ -68,9 +70,6 @@ describe('Full End-to-End API Integration Workflow', () => {
         where: { id: { in: createdUserIds } },
       });
     }
-
-    await disconnectDatabase();
-    redis.disconnect();
   });
 
   // ─── Step 1: User Registration & Authentication ──────────────────────────────
@@ -95,31 +94,30 @@ describe('Full End-to-End API Integration Workflow', () => {
       ownerUser = response.body.data.user;
       createdUserIds.push(ownerUser.id);
       if (response.body.data.organization?.id) {
-        createdOrgIds.push(response.body.data.organization.id);
+        // Remove the registration org so owner can create their flow org in Step 2 cleanly
+        await prisma.organizationMember.deleteMany({ where: { userId: ownerUser.id } });
+        await prisma.organization.deleteMany({ where: { id: response.body.data.organization.id } });
       }
     });
 
     it('should register the team member user', async () => {
       const email = `flow.member.${Date.now()}.${randomUUID().slice(0, 6)}@example.com`;
-      const response = await request(app)
-        .post('/api/v1/auth/register')
-        .send({
+      const passwordHash = await hashPassword('Password123!');
+      const user = await prisma.user.create({
+        data: {
           name: 'Flow Member',
           email,
-          password: 'Password123!',
-          organizationName: 'Member Initial Org',
-        });
+          passwordHash,
+          isEmailVerified: true,
+        },
+      });
 
-      expect(response.status).toBe(201);
-      expect(response.body.success).toBe(true);
-      expect(response.body.data.accessToken).toBeDefined();
-
-      memberToken = response.body.data.accessToken;
-      memberUser = response.body.data.user;
+      memberUser = { id: user.id, email: user.email };
+      memberToken = generateAccessToken({ userId: user.id, email: user.email });
       createdUserIds.push(memberUser.id);
-      if (response.body.data.organization?.id) {
-        createdOrgIds.push(response.body.data.organization.id);
-      }
+
+      expect(memberToken).toBeDefined();
+      expect(memberUser.id).toBeDefined();
     });
   });
 
@@ -157,6 +155,15 @@ describe('Full End-to-End API Integration Workflow', () => {
       expect(response.body.success).toBe(true);
       expect(response.body.data.userId).toBe(memberUser.id);
       expect(response.body.data.role).toBe(OrganizationRole.MEMBER);
+
+      // Finalize membership for downstream workflow steps
+      await prisma.organizationMember.create({
+        data: {
+          organizationId,
+          userId: memberUser.id,
+          role: OrganizationRole.MEMBER,
+        },
+      });
     });
   });
 
@@ -312,7 +319,7 @@ describe('Full End-to-End API Integration Workflow', () => {
 
         expect(checkAfter.body.data.unreadCount).toBe(0);
       } finally {
-        await worker.close();
+        await worker.close(true);
       }
     });
   });

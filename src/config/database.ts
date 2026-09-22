@@ -10,11 +10,13 @@ const globalForPrisma = globalThis as unknown as {
 };
 
 function createPrismaClient(): { client: PrismaClient; pool: Pool } {
+  const isTest = process.env['NODE_ENV'] === 'test' || process.env['JEST_WORKER_ID'] !== undefined;
   const pool = new Pool({
     connectionString: env.DATABASE_URL,
     max: 20,
-    idleTimeoutMillis: 30_000,
+    idleTimeoutMillis: isTest ? 500 : 30_000,
     connectionTimeoutMillis: 5_000,
+    allowExitOnIdle: isTest,
   });
 
   pool.on('error', (err) => {

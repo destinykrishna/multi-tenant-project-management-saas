@@ -42,7 +42,7 @@ describe('Email Service & Worker Integration Tests', () => {
       expect(job.name).toBe('send-email');
       expect(job.data.to).toBe('queue-recipient@example.com');
 
-      await job.remove();
+      await job.remove().catch(() => {});
     });
   });
 
@@ -70,7 +70,7 @@ describe('Email Service & Worker Integration Tests', () => {
         expect(completedResult.recipient).toBe('processed@example.com');
         expect(completedResult.messageId).toBeDefined();
       } finally {
-        await worker.close();
+        await worker.close(true);
       }
     });
   });

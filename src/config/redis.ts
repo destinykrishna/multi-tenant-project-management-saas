@@ -13,7 +13,7 @@ const globalForRedis = globalThis as unknown as {
 };
 
 function createRedisClient(): Redis {
-  const isTest = env.NODE_ENV === 'test';
+  const isTest = process.env['NODE_ENV'] === 'test' || process.env['JEST_WORKER_ID'] !== undefined;
 
   const client = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: null,
@@ -67,15 +67,11 @@ export async function connectRedis(): Promise<void> {
 
 export async function disconnectRedis(): Promise<void> {
   try {
-    if (redis.status === 'ready' || redis.status === 'connecting' || redis.status === 'connect') {
-      await redis.quit();
-    } else {
-      redis.disconnect();
-    }
+    redis.disconnect(false);
+    (redis as any).connector?.stream?.destroy();
     logger.info('Redis connection closed');
   } catch (error) {
     logger.error({ error }, 'Error disconnecting from Redis');
-    redis.disconnect();
   }
 }
 

@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { app } from '../../src/app.js';
-import { prisma, disconnectDatabase } from '../../src/config/database.js';
+import { prisma } from '../../src/config/database.js';
+import { hashPassword } from '../../src/utils/password.js';
+import { generateAccessToken } from '../../src/utils/jwt.js';
 import { AgentOrchestrator } from '../../src/modules/ai/agent.orchestrator.js';
 import { MockAiLlmProvider } from '../../src/modules/ai/providers/mock-llm.provider.js';
 import { toolRegistry } from '../../src/modules/ai/tools/tool-registry.js';
@@ -62,50 +64,47 @@ describe('Controlled Task Mutation Tools Layer', () => {
     user2Id = res2.body.data.user.id;
     org2Id = res2.body.data.organization.id;
 
-    // 3. Create Viewer User & Add to Org 1 as VIEWER
-    const viewerRes = await request(app)
-      .post('/api/v1/auth/register')
-      .send({
+    // 3. Create Viewer User directly without an initial org & Add to Org 1 as VIEWER
+    const passwordHash = await hashPassword('Password123!');
+    const viewerUser = await prisma.user.create({
+      data: {
         name: 'Org A Viewer',
         email: viewerEmail,
-        password: 'Password123!',
-        organizationName: 'Viewer Temp Org',
-      })
-      .expect(201);
+        passwordHash,
+        isEmailVerified: true,
+      },
+    });
 
-    viewerToken = viewerRes.body.data.accessToken;
-    viewerUserId = viewerRes.body.data.user.id;
+    viewerUserId = viewerUser.id;
+    viewerToken = generateAccessToken({ userId: viewerUser.id, email: viewerUser.email });
 
-    await request(app)
-      .post(`/api/v1/organizations/${org1Id}/members`)
-      .set('Authorization', `Bearer ${user1Token}`)
-      .send({
-        email: viewerEmail,
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: org1Id,
+        userId: viewerUserId,
         role: 'VIEWER',
-      })
-      .expect(201);
+      },
+    });
 
-    // 4. Create Rahul & Add to Org 1 as MEMBER
-    const rahulRes = await request(app)
-      .post('/api/v1/auth/register')
-      .send({
+    // 4. Create Rahul directly without an initial org & Add to Org 1 as MEMBER
+    const rahulUser = await prisma.user.create({
+      data: {
         name: 'Rahul Sharma',
         email: rahulEmail,
-        password: 'Password123!',
-        organizationName: 'Rahul Temp Org',
-      })
-      .expect(201);
+        passwordHash,
+        isEmailVerified: true,
+      },
+    });
 
-    rahulUserId = rahulRes.body.data.user.id;
+    rahulUserId = rahulUser.id;
 
-    await request(app)
-      .post(`/api/v1/organizations/${org1Id}/members`)
-      .set('Authorization', `Bearer ${user1Token}`)
-      .send({
-        email: rahulEmail,
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: org1Id,
+        userId: rahulUserId,
         role: 'MEMBER',
-      })
-      .expect(201);
+      },
+    });
 
     // 5. Create Projects in Org 1 and Org 2
     const projRes1 = await request(app)
@@ -173,8 +172,6 @@ describe('Controlled Task Mutation Tools Layer', () => {
         prisma.user.delete({ where: { id: u.id } }),
       ]);
     }
-
-    await disconnectDatabase();
   });
 
   const getContextOrg1 = (role = 'OWNER', userId = user1Id): AiRequestContext => ({
@@ -254,7 +251,7 @@ describe('Controlled Task Mutation Tools Layer', () => {
       });
 
       expect(res.success).toBe(false);
-      expect(res.error).toContain('Assignee must be a member of the organization');
+      expect(res.error).toContain('not members of the organization');
     });
   });
 

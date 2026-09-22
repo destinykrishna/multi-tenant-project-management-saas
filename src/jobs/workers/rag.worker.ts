@@ -83,5 +83,3 @@ export function createRagWorker(): Worker<RagJobData> {
 
   return worker;
 }
-
-export const ragWorker = createRagWorker();

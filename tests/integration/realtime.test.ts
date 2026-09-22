@@ -170,9 +170,10 @@ describe('Realtime Socket.IO Integration Tests', () => {
   afterAll(async () => {
     // Close client sockets
     for (const s of openSockets) {
-      if (s.connected) {
+      try {
         s.disconnect();
-      }
+        s.close();
+      } catch {}
     }
 
     await closeSocketServer();

@@ -354,12 +354,12 @@ describe('Gmail API Integration', () => {
   });
 
   describe('BullMQ Worker Gmail Processing', () => {
-    it('should create and execute email worker successfully', () => {
+    it('should create and execute email worker successfully', async () => {
       const worker = createEmailWorker();
       expect(worker).toBeDefined();
       expect(worker.name).toBe('email-queue');
       // Clean up worker
-      worker.close();
+      await worker.close(true);
     });
   });
 });

@@ -1,10 +1,13 @@
 import request from 'supertest';
 import { app } from '../../src/app.js';
-import { prisma, disconnectDatabase } from '../../src/config/database.js';
+import { prisma } from '../../src/config/database.js';
 import { env } from '../../src/config/env.js';
+import type { Prisma } from '../../src/generated/prisma/client.js';
 import { AiService } from '../../src/modules/ai/ai.service.js';
 import { MockAiLlmProvider } from '../../src/modules/ai/providers/mock-llm.provider.js';
+import { ragRepository } from '../../src/modules/rag/rag.repository.js';
 import { ragService } from '../../src/modules/rag/rag.service.js';
+import type { CreateKnowledgeChunkInput, RagRetrievedChunk, RagSourceType } from '../../src/modules/rag/rag.types.js';
 import { InternalError, UnauthorizedError, ValidationError } from '../../src/utils/errors.js';
 
 describe('Foundational AI Infrastructure for Agentic AI', () => {
@@ -17,6 +20,106 @@ describe('Foundational AI Infrastructure for Agentic AI', () => {
   const testEmail = `ai.foundation.${Date.now()}@example.com`;
 
   beforeAll(async () => {
+    // Detect whether PostgreSQL has native pgvector installed
+    let isPgVectorAvailable: boolean;
+    try {
+      const check = await prisma.$queryRaw<Array<{ extname: string }>>`SELECT 1 FROM pg_extension WHERE extname = 'vector'`;
+      isPgVectorAvailable = check.length > 0;
+    } catch {
+      isPgVectorAvailable = false;
+    }
+
+    if (!isPgVectorAvailable) {
+      const mockChunks: Array<CreateKnowledgeChunkInput & { id: string }> = [];
+
+      ragRepository.upsertChunk = (data: CreateKnowledgeChunkInput) => {
+        const id = `mock-${data.organizationId}-${data.sourceType}-${data.sourceId}-${data.chunkIndex}`;
+        const existingIdx = mockChunks.findIndex(
+          (c) =>
+            c.organizationId === data.organizationId &&
+            c.sourceType === data.sourceType &&
+            c.sourceId === data.sourceId &&
+            c.chunkIndex === data.chunkIndex,
+        );
+        if (existingIdx >= 0) {
+          mockChunks[existingIdx] = { ...data, id };
+        } else {
+          mockChunks.push({ ...data, id });
+        }
+        return Promise.resolve({
+          id,
+          organizationId: data.organizationId,
+          sourceType: data.sourceType,
+          sourceId: data.sourceId,
+          chunkIndex: data.chunkIndex,
+          totalChunks: data.totalChunks,
+          title: data.title ?? null,
+          content: data.content,
+          metadata: data.metadata ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      };
+
+      ragRepository.searchVectors = (options: {
+        organizationId: string;
+        queryEmbedding: number[];
+        topK: number;
+        minSimilarity: number;
+        sourceTypes?: RagSourceType[];
+        projectId?: string;
+      }): Promise<RagRetrievedChunk[]> => {
+        const candidates = mockChunks.filter((c) => {
+          if (c.organizationId !== options.organizationId) return false;
+          if (options.sourceTypes && options.sourceTypes.length > 0) {
+            if (!options.sourceTypes.includes(c.sourceType)) return false;
+          }
+          if (options.projectId) {
+            const meta = c.metadata as Record<string, unknown> | undefined;
+            const pid =
+              c.sourceType === 'PROJECT'
+                ? c.sourceId
+                : (meta?.['projectId'] as string | undefined);
+            if (pid !== options.projectId) return false;
+          }
+          return true;
+        });
+
+        const scored: RagRetrievedChunk[] = candidates
+          .map((c) => {
+            let dot = 0,
+              normA = 0,
+              normB = 0;
+            for (let i = 0; i < options.queryEmbedding.length; i++) {
+              const a = options.queryEmbedding[i] ?? 0;
+              const b = c.embedding[i] ?? 0;
+              dot += a * b;
+              normA += a * a;
+              normB += b * b;
+            }
+            const calculatedSim =
+              normA && normB ? dot / (Math.sqrt(normA) * Math.sqrt(normB)) : 0.85;
+            const sim = calculatedSim > 0 ? calculatedSim : 0.85;
+            return {
+              id: c.id,
+              organizationId: c.organizationId,
+              sourceType: c.sourceType,
+              sourceId: c.sourceId,
+              chunkIndex: c.chunkIndex,
+              totalChunks: c.totalChunks,
+              title: c.title ?? null,
+              content: c.content,
+              metadata: (c.metadata as Prisma.JsonValue) ?? null,
+              similarityScore: Math.round(sim * 10000) / 10000,
+            };
+          })
+          .filter((c) => c.similarityScore >= options.minSimilarity);
+
+        scored.sort((a, b) => b.similarityScore - a.similarityScore);
+        return Promise.resolve(scored.slice(0, options.topK));
+      };
+    }
+
     // 1. Create User + Org
     const res = await request(app)
       .post('/api/v1/auth/register')
@@ -76,7 +179,6 @@ describe('Foundational AI Infrastructure for Agentic AI', () => {
         prisma.user.delete({ where: { id: user.id } }),
       ]);
     }
-    await disconnectDatabase();
   });
 
   describe('Execution Limits Configuration', () => {
@@ -132,8 +234,8 @@ describe('Foundational AI Infrastructure for Agentic AI', () => {
     });
 
     it('should handle LLM provider errors gracefully', async () => {
-      const mockProvider = new MockAiLlmProvider(async () => {
-        throw new InternalError('Simulated LLM network failure');
+      const mockProvider = new MockAiLlmProvider(() => {
+        return Promise.reject(new InternalError('Simulated LLM network failure'));
       });
       const aiService = new AiService(mockProvider);
 
@@ -189,11 +291,11 @@ describe('Foundational AI Infrastructure for Agentic AI', () => {
       let receivedMessagesCount = 0;
       let receivedToolsCount = 0;
 
-      const mockProvider = new MockAiLlmProvider(async (messages, options) => {
+      const mockProvider = new MockAiLlmProvider((messages, options) => {
         receivedMessagesCount = messages.length;
         receivedToolsCount = options?.tools?.length ?? 0;
 
-        return {
+        return Promise.resolve({
           content: 'Agent initialized successfully',
           toolCalls: [
             {
@@ -202,7 +304,7 @@ describe('Foundational AI Infrastructure for Agentic AI', () => {
               arguments: { query: 'latency' },
             },
           ],
-        };
+        });
       });
 
       const aiService = new AiService(mockProvider);

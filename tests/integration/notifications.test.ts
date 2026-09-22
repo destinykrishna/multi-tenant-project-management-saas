@@ -302,7 +302,7 @@ describe('Notifications Module Integration & Hardening Tests', () => {
         expect(createdNotif?.title).toBe('Queued Notification Test');
         expect(createdNotif?.userId).toBe(user1.id);
       } finally {
-        await worker.close();
+        await worker.close(true);
       }
     });
 
@@ -328,7 +328,7 @@ describe('Notifications Module Integration & Hardening Tests', () => {
         expect(result.delivered).toBe(false);
         expect(result.skipped).toBe(true);
       } finally {
-        await worker.close();
+        await worker.close(true);
       }
     });
   });

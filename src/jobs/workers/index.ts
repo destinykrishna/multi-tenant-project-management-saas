@@ -23,12 +23,20 @@ export function startAllWorkers(): RunningWorkers {
 
   const stop = async () => {
     logger.info('Stopping all BullMQ workers...');
-    await Promise.allSettled([
-      emailWorker.close(),
-      notificationWorker.close(),
-      cleanupWorker.close(),
-      ragWorker.close(),
-    ]);
+    const workers = [emailWorker, notificationWorker, cleanupWorker, ragWorker];
+    await Promise.allSettled(workers.map((w) => w.waitUntilReady()));
+    await Promise.allSettled(workers.map((w) => w.close(true)));
+    for (const w of workers) {
+      const backend = (w as any).getBackend?.() || (w as any).backend;
+      const c1 = backend?.connection?._client;
+      const c2 = backend?.blockingConnection?._client;
+      try {
+        c1?.disconnect(false);
+        c1?.connector?.stream?.destroy();
+        c2?.disconnect(false);
+        c2?.connector?.stream?.destroy();
+      } catch {}
+    }
     logger.info('All BullMQ workers stopped');
   };
 

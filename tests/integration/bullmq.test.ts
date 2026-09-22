@@ -7,13 +7,11 @@ import { cleanupQueue, addCleanupJob } from '../../src/jobs/queues/cleanup.queue
 import { QUEUE_NAMES, defaultJobOptions } from '../../src/jobs/queues/queue.config.js';
 import { startAllWorkers } from '../../src/jobs/workers/index.js';
 
+import { closeAllQueues } from '../../src/jobs/queues/index.js';
+
 describe('BullMQ Infrastructure Tests', () => {
   afterAll(async () => {
-    await Promise.allSettled([
-      emailQueue.close(),
-      notificationQueue.close(),
-      cleanupQueue.close(),
-    ]);
+    await closeAllQueues();
   });
 
   describe('Queue Configurations & Options', () => {

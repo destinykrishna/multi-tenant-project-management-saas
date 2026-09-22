@@ -1,6 +1,8 @@
 import request from 'supertest';
 import { app } from '../../src/app.js';
-import { prisma, disconnectDatabase } from '../../src/config/database.js';
+import { prisma } from '../../src/config/database.js';
+import { hashPassword } from '../../src/utils/password.js';
+import { generateAccessToken } from '../../src/utils/jwt.js';
 import { AgentOrchestrator } from '../../src/modules/ai/agent.orchestrator.js';
 import { MockAiLlmProvider } from '../../src/modules/ai/providers/mock-llm.provider.js';
 import { toolRegistry } from '../../src/modules/ai/tools/tool-registry.js';
@@ -62,28 +64,27 @@ describe('AI Agent Security, Safety & Guardrails Layer', () => {
     user2Id = res2.body.data.user.id;
     org2Id = res2.body.data.organization.id;
 
-    // 3. Create Viewer User & Add to Org 1 as VIEWER
-    const viewerRes = await request(app)
-      .post('/api/v1/auth/register')
-      .send({
+    // 3. Create Viewer User directly without an initial org & Add to Org 1 as VIEWER
+    const passwordHash = await hashPassword('Password123!');
+    const viewerUser = await prisma.user.create({
+      data: {
         name: 'Sec Org A Viewer',
         email: viewerEmail,
-        password: 'Password123!',
-        organizationName: 'Sec Viewer Org',
-      })
-      .expect(201);
+        passwordHash,
+        isEmailVerified: true,
+      },
+    });
 
-    viewerToken = viewerRes.body.data.accessToken;
-    viewerUserId = viewerRes.body.data.user.id;
+    viewerUserId = viewerUser.id;
+    viewerToken = generateAccessToken({ userId: viewerUser.id, email: viewerUser.email });
 
-    await request(app)
-      .post(`/api/v1/organizations/${org1Id}/members`)
-      .set('Authorization', `Bearer ${user1Token}`)
-      .send({
-        email: viewerEmail,
+    await prisma.organizationMember.create({
+      data: {
+        organizationId: org1Id,
+        userId: viewerUserId,
         role: 'VIEWER',
-      })
-      .expect(201);
+      },
+    });
 
     // 4. Create Project in Org 1 & Org 2
     const p1 = await request(app)
@@ -128,8 +129,6 @@ describe('AI Agent Security, Safety & Guardrails Layer', () => {
         prisma.user.delete({ where: { id: u.id } }),
       ]);
     }
-
-    await disconnectDatabase();
   });
 
   describe('Sensitive Data Sanitizer', () => {

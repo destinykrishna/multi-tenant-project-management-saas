@@ -13,8 +13,6 @@ describe('API Security & Rate Limiting Integration Tests', () => {
     if (keys.length > 0) {
       await redis.del(...keys);
     }
-    await disconnectDatabase();
-    redis.disconnect();
   });
 
   describe('Security Headers & CORS Configuration', () => {
