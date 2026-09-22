@@ -67,11 +67,15 @@ export async function connectRedis(): Promise<void> {
 
 export async function disconnectRedis(): Promise<void> {
   try {
-    redis.disconnect(false);
-    (redis as any).connector?.stream?.destroy();
+    if (redis.status === 'ready' || redis.status === 'connecting' || redis.status === 'connect') {
+      await redis.quit();
+    } else {
+      redis.disconnect(false);
+    }
     logger.info('Redis connection closed');
   } catch (error) {
     logger.error({ error }, 'Error disconnecting from Redis');
+    redis.disconnect(false);
   }
 }
 
