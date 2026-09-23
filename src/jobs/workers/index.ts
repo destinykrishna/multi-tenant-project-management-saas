@@ -70,7 +70,11 @@ export function isStandaloneWorkerProcess(): boolean {
   // If explicitly requested via RUN_WORKERS env var, ensure it's not an API server process
   if (process.env['RUN_WORKERS'] === 'true') {
     const mainScript = process.argv[1] ?? '';
-    return !mainScript.includes('server.') && !mainScript.includes('server.js') && !mainScript.includes('server.ts');
+    return (
+      !mainScript.includes('server.') &&
+      !mainScript.includes('server.js') &&
+      !mainScript.includes('server.ts')
+    );
   }
   return false;
 }
@@ -102,4 +106,3 @@ if (isStandaloneWorkerProcess()) {
     void shutdown('uncaughtException');
   });
 }
-

@@ -5,7 +5,11 @@ import { logger } from './config/logger.js';
 import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
-import { startAllWorkers, shouldRunInlineWorkers, type RunningWorkers } from './jobs/workers/index.js';
+import {
+  startAllWorkers,
+  shouldRunInlineWorkers,
+  type RunningWorkers,
+} from './jobs/workers/index.js';
 import { initSocketServer, closeSocketServer } from './config/socket.js';
 
 let server: Server | undefined;
