@@ -5,7 +5,7 @@ import { logger } from './config/logger.js';
 import { app } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
-import { startAllWorkers, type RunningWorkers } from './jobs/workers/index.js';
+import { startAllWorkers, shouldRunInlineWorkers, type RunningWorkers } from './jobs/workers/index.js';
 import { initSocketServer, closeSocketServer } from './config/socket.js';
 
 let server: Server | undefined;
@@ -62,7 +62,12 @@ async function bootstrap(): Promise<void> {
     await connectDatabase();
     await connectRedis();
 
-    workers = startAllWorkers();
+    if (shouldRunInlineWorkers()) {
+      workers = startAllWorkers();
+      logger.info('Inline BullMQ workers initialized inside API server process');
+    } else {
+      logger.info('BullMQ workers disabled in API process (delegated to dedicated worker service)');
+    }
 
     server = app.listen(env.PORT, () => {
       logger.info(

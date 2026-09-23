@@ -6,6 +6,9 @@ import { ragRepository } from '../../src/modules/rag/rag.repository.js';
 import { ragService } from '../../src/modules/rag/rag.service.js';
 import type { CreateKnowledgeChunkInput, RagSourceType } from '../../src/modules/rag/rag.types.js';
 import { chunkText } from '../../src/modules/rag/utils/chunker.js';
+import { processRagJob } from '../../src/jobs/workers/rag.worker.js';
+import type { Job } from 'bullmq';
+import type { RagJobData } from '../../src/jobs/queues/rag.queue.js';
 
 describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
   let user1Token: string;
@@ -323,6 +326,78 @@ describe('RAG Foundation & Entity Ingestion/Indexing Pipeline', () => {
       expect(response.body.data.projectsIndexed).toBeGreaterThanOrEqual(1);
       expect(response.body.data.tasksIndexed).toBeGreaterThanOrEqual(1);
       expect(response.body.data.totalChunks).toBeGreaterThan(0);
+    });
+
+    it('should enqueue batch RAG indexing asynchronously (202 Accepted) when sync is not specified', async () => {
+      const response = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/rag/index`)
+        .set('Authorization', `Bearer ${user1Token}`)
+        .expect(202);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.queued).toBe(true);
+      expect(response.body.data.organizationId).toBe(org1Id);
+      expect(response.body.data.jobId).toBeDefined();
+    });
+
+    it('should enqueue entity RAG indexing asynchronously (202 Accepted) when sync is not specified', async () => {
+      const response = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/rag/index/entity`)
+        .set('Authorization', `Bearer ${user1Token}`)
+        .send({
+          sourceType: 'PROJECT',
+          sourceId: projectId,
+        })
+        .expect(202);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.queued).toBe(true);
+      expect(response.body.data.organizationId).toBe(org1Id);
+      expect(response.body.data.sourceType).toBe('PROJECT');
+      expect(response.body.data.sourceId).toBe(projectId);
+      expect(response.body.data.jobId).toBeDefined();
+    });
+
+    it('should trigger entity RAG indexing synchronously (200 OK) when ?sync=true is specified', async () => {
+      const response = await request(app)
+        .post(`/api/v1/organizations/${org1Id}/rag/index/entity?sync=true`)
+        .set('Authorization', `Bearer ${user1Token}`)
+        .send({
+          sourceType: 'PROJECT',
+          sourceId: projectId,
+        })
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.sourceType).toBe('PROJECT');
+      expect(response.body.data.sourceId).toBe(projectId);
+      expect(response.body.data.success).toBe(true);
+    });
+
+    it('should successfully execute batch indexing in the BullMQ worker job processor', async () => {
+      const mockJob = {
+        id: 'mock-rag-batch-job-1',
+        data: {
+          type: 'index-organization-batch',
+          organizationId: org1Id,
+        },
+      } as Job<RagJobData>;
+
+      await expect(processRagJob(mockJob)).resolves.not.toThrow();
+    });
+
+    it('should successfully execute entity indexing in the BullMQ worker job processor', async () => {
+      const mockJob = {
+        id: 'mock-rag-entity-job-1',
+        data: {
+          type: 'index-entity',
+          organizationId: org1Id,
+          sourceType: 'PROJECT',
+          sourceId: projectId,
+        },
+      } as Job<RagJobData>;
+
+      await expect(processRagJob(mockJob)).resolves.not.toThrow();
     });
 
     it('should retrieve indexed documents without exposing raw embedding arrays in API responses', async () => {

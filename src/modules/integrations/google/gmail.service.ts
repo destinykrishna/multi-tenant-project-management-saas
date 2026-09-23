@@ -5,7 +5,7 @@ import {
   UnauthorizedError,
   AppError,
 } from '../../../utils/errors.js';
-import { googleService, type GoogleService } from './google.service.js';
+import { googleService, GOOGLE_SCOPES, type GoogleService } from './google.service.js';
 import type { EmailMessage, EmailSendResult } from '../../email/email.types.js';
 
 const GMAIL_SEND_ENDPOINT = 'https://gmail.googleapis.com/gmail/v1/users/me/messages/send';
@@ -72,7 +72,7 @@ export class GmailService {
    */
   async sendEmail(userId: string, message: EmailMessage): Promise<EmailSendResult> {
     // 1. Obtain valid access token (automatically refreshed if expired)
-    const accessToken = await this.gService.getValidAccessToken(userId);
+    const accessToken = await this.gService.getValidAccessToken(userId, GOOGLE_SCOPES.GMAIL_SEND);
 
     // 2. Format RFC 2822 message in Base64URL encoding
     const rawMessage = this.encodeRfc2822Message(message);

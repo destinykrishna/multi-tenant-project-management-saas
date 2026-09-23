@@ -5,7 +5,11 @@ import {
 } from '../../src/jobs/queues/notification.queue.js';
 import { cleanupQueue, addCleanupJob } from '../../src/jobs/queues/cleanup.queue.js';
 import { QUEUE_NAMES, defaultJobOptions } from '../../src/jobs/queues/queue.config.js';
-import { startAllWorkers } from '../../src/jobs/workers/index.js';
+import {
+  startAllWorkers,
+  shouldRunInlineWorkers,
+  isStandaloneWorkerProcess,
+} from '../../src/jobs/workers/index.js';
 
 import { closeAllQueues } from '../../src/jobs/queues/index.js';
 
@@ -87,9 +91,101 @@ describe('BullMQ Infrastructure Tests', () => {
       expect(workers.emailWorker).toBeDefined();
       expect(workers.notificationWorker).toBeDefined();
       expect(workers.cleanupWorker).toBeDefined();
+      expect(workers.ragWorker).toBeDefined();
 
       // Gracefully stop all workers
       await expect(workers.stop()).resolves.toBeUndefined();
+    });
+
+    describe('Worker Lifecycle Separation (shouldRunInlineWorkers)', () => {
+      const originalEnv = { ...process.env };
+
+      afterEach(() => {
+        process.env = { ...originalEnv };
+      });
+
+      it('should disable inline workers in production by default', () => {
+        delete process.env['ENABLE_INLINE_WORKERS'];
+        delete process.env['RUN_WORKERS'];
+        process.env['NODE_ENV'] = 'production';
+
+        expect(shouldRunInlineWorkers()).toBe(false);
+      });
+
+      it('should enable inline workers in development by default', () => {
+        delete process.env['ENABLE_INLINE_WORKERS'];
+        delete process.env['RUN_WORKERS'];
+        process.env['NODE_ENV'] = 'development';
+
+        expect(shouldRunInlineWorkers()).toBe(true);
+      });
+
+      it('should disable inline workers in test by default', () => {
+        delete process.env['ENABLE_INLINE_WORKERS'];
+        delete process.env['RUN_WORKERS'];
+        process.env['NODE_ENV'] = 'test';
+
+        expect(shouldRunInlineWorkers()).toBe(false);
+      });
+
+      it('should respect ENABLE_INLINE_WORKERS=false explicitly', () => {
+        process.env['ENABLE_INLINE_WORKERS'] = 'false';
+        process.env['NODE_ENV'] = 'development';
+
+        expect(shouldRunInlineWorkers()).toBe(false);
+      });
+
+      it('should respect ENABLE_INLINE_WORKERS=true explicitly', () => {
+        process.env['ENABLE_INLINE_WORKERS'] = 'true';
+        process.env['NODE_ENV'] = 'production';
+
+        expect(shouldRunInlineWorkers()).toBe(true);
+      });
+
+      it('should respect RUN_WORKERS=true explicitly in API process when ENABLE_INLINE_WORKERS is unset', () => {
+        delete process.env['ENABLE_INLINE_WORKERS'];
+        process.env['RUN_WORKERS'] = 'true';
+        process.env['NODE_ENV'] = 'production';
+
+        expect(shouldRunInlineWorkers()).toBe(true);
+      });
+    });
+
+    describe('Standalone Worker Process Detection (isStandaloneWorkerProcess)', () => {
+      const originalArgv = [...process.argv];
+      const originalEnv = { ...process.env };
+
+      afterEach(() => {
+        process.argv = [...originalArgv];
+        process.env = { ...originalEnv };
+      });
+
+      it('should identify standalone worker when --run-workers flag is passed', () => {
+        process.argv = ['node', 'dist/jobs/workers/index.js', '--run-workers'];
+
+        expect(isStandaloneWorkerProcess()).toBe(true);
+      });
+
+      it('should not identify standalone worker when running as server.js', () => {
+        process.argv = ['node', 'dist/server.js'];
+        delete process.env['RUN_WORKERS'];
+
+        expect(isStandaloneWorkerProcess()).toBe(false);
+      });
+
+      it('should not start standalone worker even if RUN_WORKERS=true when running server.js', () => {
+        process.argv = ['node', 'dist/server.js'];
+        process.env['RUN_WORKERS'] = 'true';
+
+        expect(isStandaloneWorkerProcess()).toBe(false);
+      });
+
+      it('should identify standalone worker when RUN_WORKERS=true and entrypoint is worker index', () => {
+        process.argv = ['node', 'dist/jobs/workers/index.js'];
+        process.env['RUN_WORKERS'] = 'true';
+
+        expect(isStandaloneWorkerProcess()).toBe(true);
+      });
     });
   });
 });

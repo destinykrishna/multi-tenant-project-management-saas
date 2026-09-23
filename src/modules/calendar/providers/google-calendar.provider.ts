@@ -11,10 +11,6 @@ import {
   GOOGLE_SCOPES,
   type GoogleService,
 } from '../../integrations/google/google.service.js';
-import {
-  googleRepository,
-  type GoogleRepository,
-} from '../../integrations/google/google.repository.js';
 import type {
   ICalendarProvider,
   CalendarEventInput,
@@ -56,28 +52,11 @@ export class GoogleCalendarProvider implements ICalendarProvider {
 
   constructor(
     private readonly gService: GoogleService = googleService,
-    private readonly gRepo: GoogleRepository = googleRepository,
+    _gRepo?: unknown,
   ) {}
 
   private async getAuthorizedToken(userId: string): Promise<string> {
-    const connection = await this.gRepo.findByUserId(userId);
-    if (!connection) {
-      throw new NotFoundError('No connected Google account found for user', 'NO_GOOGLE_CONNECTION');
-    }
-
-    // Check if the user's connection granted the Calendar scope
-    const hasCalendarScope = connection.scopes.some(
-      (s) => s.includes('calendar') || s === GOOGLE_SCOPES.CALENDAR_EVENTS,
-    );
-
-    if (!hasCalendarScope) {
-      throw new ForbiddenError(
-        'Google Calendar permission not granted. Please reconnect your Google account to grant calendar access.',
-        'GOOGLE_CALENDAR_SCOPE_MISSING',
-      );
-    }
-
-    return this.gService.getValidAccessToken(userId);
+    return this.gService.getValidAccessToken(userId, GOOGLE_SCOPES.CALENDAR_EVENTS);
   }
 
   private mapGoogleEvent(event: GoogleApiEventResponse): CalendarEventOutput {

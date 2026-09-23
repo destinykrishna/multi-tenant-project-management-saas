@@ -40,8 +40,8 @@ export class RagController {
 
     const orgId = req.membership.organizationId;
 
-    // If synchronous mode is requested or in tests, run inline
-    const isSync = req.query['sync'] === 'true' || process.env['NODE_ENV'] === 'test';
+    // Ingestion runs asynchronously via BullMQ worker unless intentionally requested synchronously via ?sync=true
+    const isSync = req.query['sync'] === 'true';
 
     if (isSync) {
       const summary = await this.service.indexOrganizationBatch(orgId);
@@ -69,7 +69,8 @@ export class RagController {
 
     const orgId = req.membership.organizationId;
     const body = req.body as IndexEntityInput;
-    const isSync = req.query['sync'] === 'true' || process.env['NODE_ENV'] === 'test';
+    // Ingestion runs asynchronously via BullMQ worker unless intentionally requested synchronously via ?sync=true
+    const isSync = req.query['sync'] === 'true';
 
     if (isSync) {
       let result;

@@ -8,6 +8,7 @@ x-api-common: &api-common
   restart: unless-stopped
   environment:
     NODE_ENV: production
+    ENABLE_INLINE_WORKERS: 'false'
     PORT: 5000
     DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/multi_tenant_backend?schema=public}
     REDIS_URL: ${REDIS_URL:-redis://redis:6379}

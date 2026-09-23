@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "dev:workers": "tsx watch src/jobs/workers/index.ts --run-workers",
     "build": "tsc",
     "start": "node dist/server.js",
     "start:workers": "node dist/jobs/workers/index.js --run-workers",

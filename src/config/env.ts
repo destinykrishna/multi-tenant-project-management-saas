@@ -85,6 +85,13 @@ const envSchema = z.object({
     .or(z.boolean())
     .default(1),
 
+  // Background Workers
+  ENABLE_INLINE_WORKERS: z
+    .string()
+    .transform((val) => val === 'true')
+    .or(z.boolean())
+    .optional(),
+
   // Logging
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 });

@@ -5,6 +5,7 @@ import { logger } from '../../../config/logger.js';
 import {
   BadRequestError,
   ConflictError,
+  ForbiddenError,
   NotFoundError,
   UnauthorizedError,
 } from '../../../utils/errors.js';
@@ -231,12 +232,42 @@ export class GoogleService {
 
   /**
    * Retrieves a valid decrypted access token for the user, automatically refreshing it if expired.
+   * Optionally verifies that a required OAuth scope is granted.
    */
-  async getValidAccessToken(userId: string): Promise<string> {
+  async getValidAccessToken(userId: string, requiredScope?: string): Promise<string> {
     const connection = await this.googleRepo.findByUserId(userId);
 
     if (!connection) {
       throw new NotFoundError('No connected Google account found for user', 'NO_GOOGLE_CONNECTION');
+    }
+
+    if (requiredScope) {
+      const hasScope = connection.scopes.some(
+        (s) =>
+          s === requiredScope ||
+          s.includes(requiredScope) ||
+          (requiredScope.includes('calendar') && s.includes('calendar')) ||
+          (requiredScope.includes('gmail') && s.includes('gmail')),
+      );
+
+      if (!hasScope) {
+        if (requiredScope.includes('calendar') || requiredScope === GOOGLE_SCOPES.CALENDAR_EVENTS) {
+          throw new ForbiddenError(
+            'Google Calendar permission not granted. Please reconnect your Google account to grant calendar access.',
+            'GOOGLE_CALENDAR_SCOPE_MISSING',
+          );
+        }
+        if (requiredScope.includes('gmail') || requiredScope === GOOGLE_SCOPES.GMAIL_SEND) {
+          throw new ForbiddenError(
+            'Gmail permission not granted. Please reconnect your Google account to grant email sending access.',
+            'GMAIL_SCOPE_MISSING',
+          );
+        }
+        throw new ForbiddenError(
+          `Required Google scope '${requiredScope}' not granted. Please reconnect your Google account.`,
+          'GOOGLE_SCOPE_MISSING',
+        );
+      }
     }
 
     const now = Date.now();
